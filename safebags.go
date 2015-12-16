@@ -5,6 +5,7 @@
 package pkcs12
 
 import (
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
@@ -45,6 +46,36 @@ func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{
 	return privateKey, nil
 }
 
+func encodePkcs8ShroudedKeyBag(privateKey interface{}, password []byte) (asn1Data []byte, err error) {
+	var pkData []byte
+	if pkData, err = marshalPKCS8PrivateKey(privateKey); err != nil {
+		return nil, errors.New("pkcs12: error encoding PKCS#8 private key: " + err.Error())
+	}
+
+	randomSalt := make([]byte, 8)
+	if _, err = rand.Read(randomSalt); err != nil {
+		return nil, errors.New("pkcs12: error reading random salt: " + err.Error())
+	}
+	var paramBytes []byte
+	if paramBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
+		return nil, errors.New("pkcs12: error encoding params: " + err.Error())
+	}
+
+	var pkinfo encryptedPrivateKeyInfo
+	pkinfo.AlgorithmIdentifier.Algorithm = oidPBEWithSHAAnd3KeyTripleDESCBC
+	pkinfo.AlgorithmIdentifier.Parameters.FullBytes = paramBytes
+
+	if err = pbEncrypt(&pkinfo, pkData, password); err != nil {
+		return nil, errors.New("pkcs12: error encrypting PKCS#8 shrouded key bag: " + err.Error())
+	}
+
+	if asn1Data, err = asn1.Marshal(pkinfo); err != nil {
+		return nil, errors.New("pkcs12: error encoding PKCS#8 shrouded key bag: " + err.Error())
+	}
+
+	return asn1Data, nil
+}
+
 func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err error) {
 	bag := new(certBag)
 	if err := unmarshal(asn1Data, bag); err != nil {
@@ -54,4 +85,14 @@ func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err error) {
 		return nil, NotImplementedError("only X509 certificates are supported")
 	}
 	return bag.Data, nil
+}
+
+func encodeCertBag(x509Certificates []byte) (asn1Data []byte, err error) {
+	var bag certBag
+	bag.Id = oidCertTypeX509Certificate
+	bag.Data = x509Certificates
+	if asn1Data, err = asn1.Marshal(bag); err != nil {
+		return nil, errors.New("pkcs12: error encoding cert bag: " + err.Error())
+	}
+	return asn1Data, nil
 }
