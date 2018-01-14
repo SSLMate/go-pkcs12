@@ -11,7 +11,6 @@ package pkcs12
 
 import (
 	"crypto/ecdsa"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
@@ -20,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"io"
 )
 
 var (
@@ -358,7 +358,7 @@ func getSafeContents(p12Data, password []byte) (bags []safeBag, updatedPassword 
 // and contains the certificates, and another that is unencrypted and contains the private key shrouded with 3DES.
 // The private key bag and the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1 fingerprint
 // of the end-entity certificate.
-func Encode(privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
 	encodedPassword, err := bmpString(password)
 	if err != nil {
 		return nil, err
@@ -396,7 +396,7 @@ func Encode(privateKey interface{}, certificate *x509.Certificate, caCerts []*x5
 	keyBag.Value.Class = 2
 	keyBag.Value.Tag = 0
 	keyBag.Value.IsCompound = true
-	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(privateKey, encodedPassword); err != nil {
+	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(rand, privateKey, encodedPassword); err != nil {
 		return nil, err
 	}
 	keyBag.Attributes = append(keyBag.Attributes, localKeyIdAttr)
@@ -405,10 +405,10 @@ func Encode(privateKey interface{}, certificate *x509.Certificate, caCerts []*x5
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents([]safeBag{keyBag}, nil); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil); err != nil {
 		return nil, err
 	}
 
@@ -455,7 +455,7 @@ func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeB
 	return
 }
 
-func makeSafeContents(bags []safeBag, password []byte) (ci contentInfo, err error) {
+func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci contentInfo, err error) {
 	var data []byte
 	if data, err = asn1.Marshal(bags); err != nil {
 		return
