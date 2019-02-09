@@ -2,11 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package pkcs12 implements some of PKCS#12.
+// Package pkcs12 implements some of PKCS#12 (also known as P12 or PFX).
+// It is intended for decoding P12/PFX files for use with the crypto/tls
+// package, and for encoding P12/PFX files for use by legacy applications which
+// do not support newer formats.  Since PKCS#12 uses weak encryption
+// primitives, it SHOULD NOT be used for new applications.
 //
-// This implementation is distilled from https://tools.ietf.org/html/rfc7292
-// and referenced documents. It is intended for decoding P12/PFX-stored
-// certificates and keys for use with the crypto/tls package.
+// This package is forked from golang.org/x/crypto/pkcs12, which is frozen.
+// The implementation is distilled from https://tools.ietf.org/html/rfc7292
+// and referenced documents.
 package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
@@ -359,11 +363,24 @@ func getSafeContents(p12Data, password []byte) (bags []safeBag, updatedPassword 
 	return bags, password, nil
 }
 
-// Encode produces pfxData containing one private key, an end-entity certificate, and any number of CA certificates.
-// It emulates the behavior of OpenSSL's PKCS12_create: it creates two SafeContents: one that's encrypted with RC2
-// and contains the certificates, and another that is unencrypted and contains the private key shrouded with 3DES.
-// The private key bag and the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1 fingerprint
-// of the end-entity certificate.
+// Encode produces pfxData containing one private key (privateKey), an
+// end-entity certificate (certificate), and any number of CA certificates
+// (caCerts).
+//
+// The private key is encrypted with the provided password, but due to the
+// weak encryption primitives used by PKCS#12, it is RECOMMENDED that you
+// specify a hard-coded password (such as pkcs12.DefaultPassword) and protect
+// the resulting pfxData using other means.
+//
+// The rand argument is used to provide entropy for the encryption, and
+// can be set to rand.Reader from the crypto/rand package.
+//
+// Encode emulates the behavior of OpenSSL's PKCS12_create: it creates two
+// SafeContents: one that's encrypted with RC2 and contains the certificates,
+// and another that is unencrypted and contains the private key shrouded with
+// 3DES  The private key bag and the end-entity certificate bag have the
+// LocalKeyId attribute set to the SHA-1 fingerprint of the end-entity
+// certificate.
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
 	encodedPassword, err := bmpString(password)
 	if err != nil {
