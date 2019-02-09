@@ -22,6 +22,12 @@ import (
 	"io"
 )
 
+// DefaultPassword is the string "changeit", a commonly-used password for
+// PKCS#12 files. Due to the weak encryption used by PKCS#12, it is
+// RECOMMENDED that you use DefaultPassword when encoding PKCS#12 files,
+// and protect the PKCS#12 files using other means.
+const DefaultPassword = "changeit"
+
 var (
 	oidDataContentType          = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 1})
 	oidEncryptedDataContentType = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 6})
