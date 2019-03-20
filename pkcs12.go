@@ -204,7 +204,8 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 		key = "Microsoft CSP Name"
 		isString = true
 	default:
-		return "", "", errors.New("pkcs12: unknown attribute with OID " + attribute.Id.String())
+		return "Unknown_OID_" + attribute.Id.String(),
+			hex.EncodeToString(attribute.Value.Bytes), nil
 	}
 
 	if isString {
