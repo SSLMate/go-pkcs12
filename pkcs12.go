@@ -119,7 +119,11 @@ func unmarshal(in []byte, out interface{}) error {
 	return nil
 }
 
-// ConvertToPEM converts all "safe bags" contained in pfxData to PEM blocks.
+// ToPEM converts all "safe bags" contained in pfxData to PEM blocks.
+// DO NOT USE THIS FUNCTION. ToPEM creates invalid PEM blocks; private keys
+// are encoded as raw RSA or EC private keys rather than PKCS#8 despite being
+// labeled "PRIVATE KEY".  To decode a PKCS#12 file, use DecodeChain instead,
+// and use the encoding/pem package to convert to PEM if necessary.
 func ToPEM(pfxData []byte, password string) ([]*pem.Block, error) {
 	encodedPassword, err := bmpString(password)
 	if err != nil {
@@ -227,7 +231,8 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 
 // Decode extracts a certificate and private key from pfxData. This function
 // assumes that there is only one certificate and only one private key in the
-// pfxData.
+// pfxData.  Since PKCS#12 files often contain more than one certificate, you
+// probably want to use DecodeChain instead.
 func Decode(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, err error) {
 	var caCerts []*x509.Certificate
 	privateKey, certificate, caCerts, err = DecodeChain(pfxData, password)
