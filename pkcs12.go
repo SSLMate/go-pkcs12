@@ -462,7 +462,7 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
 		return nil, err
 	}
-	pfx.MacData.Iterations = 1
+	pfx.MacData.Iterations = 2048
 	if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
 		return nil, err
 	}
