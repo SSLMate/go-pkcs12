@@ -13,7 +13,7 @@ import (
 	"encoding/asn1"
 	"errors"
 
-	"software.sslmate.com/src/go-pkcs12/internal/rc2"
+	"github.com/confluentinc/go-pkcs12/internal/rc2"
 )
 
 var (
