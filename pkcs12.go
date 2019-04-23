@@ -697,6 +697,56 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci conte
 	} else {
 		randomSalt := make([]byte, 8)
 		_, err = rand.Read(randomSalt)
+
+		if _, err = rand.Read(randomSalt); err != nil {
+			fmt.Println("ERROR READING THE 8byte array", err)
+			return
+		}
+
+		var algo pkix.AlgorithmIdentifier
+		algo.Algorithm = oidPBEWithSHAAnd40BitRC2CBC
+		if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
+			return
+		}
+
+		var encryptedData encryptedData
+		encryptedData.Version = 0
+		encryptedData.EncryptedContentInfo.ContentType = oidDataContentType
+		encryptedData.EncryptedContentInfo.ContentEncryptionAlgorithm = algo
+		if err = pbEncrypt(&encryptedData.EncryptedContentInfo, data, password); err != nil {
+			return
+		}
+
+		ci.ContentType = oidEncryptedDataContentType
+		ci.Content.Class = 2
+		ci.Content.Tag = 0
+		ci.Content.IsCompound = true
+		if ci.Content.Bytes, err = asn1.Marshal(encryptedData); err != nil {
+			return
+		}
+	}
+	return
+}
+
+//assumes no private key
+func makeSafeContentsNoPrivateKey(bags []safeBag, password []byte) (ci contentInfo, err error) {
+	var data []byte
+	if data, err = asn1.Marshal(bags); err != nil {
+		return
+	}
+
+	if password == nil {
+		ci.ContentType = oidDataContentType
+		ci.Content.Class = 2
+		ci.Content.Tag = 0
+		ci.Content.IsCompound = true
+		if ci.Content.Bytes, err = asn1.Marshal(data); err != nil {
+			return
+		}
+	} else {
+		randomSalt := make([]byte, 8)
+		_, err = rand.Read(randomSalt)
+
 		if _, err = rand.Read(randomSalt); err != nil {
 			fmt.Println("ERROR READING THE 8byte array", err)
 			return
