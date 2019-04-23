@@ -16,6 +16,7 @@ package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
@@ -24,7 +25,11 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	scmlog "gitlab.sas.com/golang/certframe/log"
+	"gitlab.sas.com/golang/certframe/utils"
 	"io"
+	"io/ioutil"
 )
 
 // DefaultPassword is the string "changeit", a commonly-used password for
@@ -301,6 +306,51 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 	return
 }
 
+func DecodeChainNoPrivateKey(pfxData []byte, password []byte) (caCerts []*x509.Certificate, err error) {
+	//if file was empty, don't try decode. Just return empty slice
+	var certs []*x509.Certificate
+	if len(pfxData) == 0 {
+		fmt.Println("Input file is empty. Returning an empty slice of x509.Certificates", pfxData)
+		return certs, nil
+	}
+
+	var pwstring = string(password[:])
+	encodedPassword, err := bmpString(pwstring)
+	if err != nil {
+		return nil, err
+	}
+
+	bags, encodedPassword, err := getSafeContentsNoPrivateKey(pfxData, encodedPassword)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, bag := range bags {
+		switch {
+		case bag.Id.Equal(oidCertBag):
+			certsData, err := decodeCertBag(bag.Value.Bytes)
+			if err != nil {
+				return nil, err
+			}
+			certs, err := x509.ParseCertificates(certsData)
+			if err != nil {
+				return nil, err
+			}
+			if len(certs) > 0 {
+				for i := 0; i < len(certs); i++ {
+					caCerts = append(caCerts, certs[0])
+				}
+				//basically ignore any duplicate certs that may have been in the file
+				caCerts = removeDupCerts(caCerts)
+			} else {
+				return nil, errors.New("pkcs12: certificate missing")
+			}
+
+		}
+	}
+	return
+}
+
 func getSafeContents(p12Data, password []byte) (bags []safeBag, updatedPassword []byte, err error) {
 	pfx := new(pfxPdu)
 	if err := unmarshal(p12Data, pfx); err != nil {
@@ -344,6 +394,80 @@ func getSafeContents(p12Data, password []byte) (bags []safeBag, updatedPassword 
 
 	if len(authenticatedSafe) != 2 {
 		return nil, nil, NotImplementedError("expected exactly two items in the authenticated safe")
+	}
+
+	for _, ci := range authenticatedSafe {
+		var data []byte
+
+		switch {
+		case ci.ContentType.Equal(oidDataContentType):
+			if err := unmarshal(ci.Content.Bytes, &data); err != nil {
+				return nil, nil, err
+			}
+		case ci.ContentType.Equal(oidEncryptedDataContentType):
+			var encryptedData encryptedData
+			if err := unmarshal(ci.Content.Bytes, &encryptedData); err != nil {
+				return nil, nil, err
+			}
+			if encryptedData.Version != 0 {
+				return nil, nil, NotImplementedError("only version 0 of EncryptedData is supported")
+			}
+			if data, err = pbDecrypt(encryptedData.EncryptedContentInfo, password); err != nil {
+				return nil, nil, err
+			}
+		default:
+			return nil, nil, NotImplementedError("only data and encryptedData content types are supported in authenticated safe")
+		}
+
+		var safeContents []safeBag
+		if err := unmarshal(data, &safeContents); err != nil {
+			return nil, nil, err
+		}
+		bags = append(bags, safeContents...)
+	}
+
+	return bags, password, nil
+}
+
+func getSafeContentsNoPrivateKey(p12Data, password []byte) (bags []safeBag, updatedPassword []byte, err error) {
+	pfx := new(pfxPdu)
+	if err := unmarshal(p12Data, pfx); err != nil {
+		return nil, nil, errors.New("pkcs12: error reading P12 data: " + err.Error())
+	}
+
+	if pfx.Version != 3 {
+		return nil, nil, NotImplementedError("can only decode v3 PFX PDU's")
+	}
+
+	if !pfx.AuthSafe.ContentType.Equal(oidDataContentType) {
+		return nil, nil, NotImplementedError("only password-protected PFX is implemented")
+	}
+
+	// unmarshal the explicit bytes in the content for type 'data'
+	if err := unmarshal(pfx.AuthSafe.Content.Bytes, &pfx.AuthSafe.Content); err != nil {
+		return nil, nil, err
+	}
+
+	if len(pfx.MacData.Mac.Algorithm.Algorithm) == 0 {
+		return nil, nil, errors.New("pkcs12: no MAC in data")
+	}
+
+	if err := verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password); err != nil {
+		if err == ErrIncorrectPassword && len(password) == 2 && password[0] == 0 && password[1] == 0 {
+			// some implementations use an empty byte array
+			// for the empty string password try one more
+			// time with empty-empty password
+			password = nil
+			err = verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	var authenticatedSafe []contentInfo
+	if err := unmarshal(pfx.AuthSafe.Content.Bytes, &authenticatedSafe); err != nil {
+		return nil, nil, err
 	}
 
 	for _, ci := range authenticatedSafe {
@@ -481,6 +605,71 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	return
 }
 
+//assumes no private key
+func EncodeNoPrivateKey(caCerts []*x509.Certificate, password []byte) (pfxData []byte, err error) {
+	var pwstring = string(password[:])
+	encodedPassword, err := bmpString(pwstring)
+	if err != nil {
+		return nil, err
+	}
+
+	var pfx pfxPdu
+	pfx.Version = 3
+
+	var localKeyIdAttr pkcs12Attribute
+	localKeyIdAttr.Id = oidLocalKeyID
+	localKeyIdAttr.Value.Class = 0
+	localKeyIdAttr.Value.Tag = 17
+	localKeyIdAttr.Value.IsCompound = true
+
+	var certBags []safeBag
+	var certBag *safeBag
+
+	for _, cert := range caCerts {
+		if certBag, err = makeCertBag(cert.Raw, []pkcs12Attribute{}); err != nil {
+			return nil, err
+		}
+		certBags = append(certBags, *certBag)
+	}
+
+	// Construct an authenticated safe with two SafeContents.
+	// The first SafeContents is encrypted and contains the cert bags.
+	// The second SafeContents is unencrypted and contains the shrouded key bag.
+	var authenticatedSafe [1]contentInfo
+	if authenticatedSafe[0], err = makeSafeContentsNoPrivateKey(certBags, encodedPassword); err != nil {
+		return nil, err
+	}
+
+	var authenticatedSafeBytes []byte
+	if authenticatedSafeBytes, err = asn1.Marshal(authenticatedSafe[:]); err != nil {
+		return nil, err
+	}
+
+	// compute the MAC
+	pfx.MacData.Mac.Algorithm.Algorithm = oidSHA1
+	pfx.MacData.MacSalt = make([]byte, 8)
+	if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+		return nil, err
+	}
+	pfx.MacData.Iterations = 1
+	if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
+		return nil, err
+	}
+
+	pfx.AuthSafe.ContentType = oidDataContentType
+	pfx.AuthSafe.Content.Class = 2
+	pfx.AuthSafe.Content.Tag = 0
+	pfx.AuthSafe.Content.IsCompound = true
+	if pfx.AuthSafe.Content.Bytes, err = asn1.Marshal(authenticatedSafeBytes); err != nil {
+		return nil, err
+	}
+
+	if pfxData, err = asn1.Marshal(pfx); err != nil {
+		return nil, errors.New("pkcs12: error writing P12 data: " + err.Error())
+	}
+	return
+}
+
 func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeBag, err error) {
 	certBag = new(safeBag)
 	certBag.Id = oidCertBag
@@ -510,7 +699,9 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci conte
 		}
 	} else {
 		randomSalt := make([]byte, 8)
+		_, err = rand.Read(randomSalt)
 		if _, err = rand.Read(randomSalt); err != nil {
+			fmt.Println("ERROR READING THE 8byte array", err)
 			return
 		}
 
@@ -534,6 +725,94 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci conte
 		ci.Content.IsCompound = true
 		if ci.Content.Bytes, err = asn1.Marshal(encryptedData); err != nil {
 			return
+		}
+	}
+	return
+}
+
+//assumes no private key
+func makeSafeContentsNoPrivateKey(bags []safeBag, password []byte) (ci contentInfo, err error) {
+	var data []byte
+	if data, err = asn1.Marshal(bags); err != nil {
+		return
+	}
+
+	if password == nil {
+		ci.ContentType = oidDataContentType
+		ci.Content.Class = 2
+		ci.Content.Tag = 0
+		ci.Content.IsCompound = true
+		if ci.Content.Bytes, err = asn1.Marshal(data); err != nil {
+			return
+		}
+	} else {
+		randomSalt := make([]byte, 8)
+		_, err = rand.Read(randomSalt)
+		if _, err = rand.Read(randomSalt); err != nil {
+			fmt.Println("ERROR READING THE 8byte array", err)
+			return
+		}
+
+		var algo pkix.AlgorithmIdentifier
+		algo.Algorithm = oidPBEWithSHAAnd40BitRC2CBC
+		if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
+			return
+		}
+
+		var encryptedData encryptedData
+		encryptedData.Version = 0
+		encryptedData.EncryptedContentInfo.ContentType = oidDataContentType
+		encryptedData.EncryptedContentInfo.ContentEncryptionAlgorithm = algo
+		if err = pbEncrypt(&encryptedData.EncryptedContentInfo, data, password); err != nil {
+			return
+		}
+
+		ci.ContentType = oidEncryptedDataContentType
+		ci.Content.Class = 2
+		ci.Content.Tag = 0
+		ci.Content.IsCompound = true
+		if ci.Content.Bytes, err = asn1.Marshal(encryptedData); err != nil {
+			return
+		}
+	}
+	return
+}
+
+//LoadPKCS12BundleFile takes in a certificate bundle file and decodes the contents.
+//a slice of x509.Certificates is returned
+func LoadPKCS12BundleFile(file string, password []byte) (caCerts []*x509.Certificate, err error) {
+
+	//read input from file as bytes
+	input, err := ioutil.ReadFile(file)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	//decode bytes and return a list of x509 certs
+	certs, err := DecodeChainNoPrivateKey(input, password)
+	return certs, err
+
+}
+
+//removes duplicate certificates that may have been read in from a file
+func removeDupCerts(certs []*x509.Certificate) (caCerts []*x509.Certificate) {
+
+	found := map[string]bool{}
+
+	for x := range certs {
+		scmlog.Debug("Processing certificate: ", certs[x].Subject, certs[x].SerialNumber)
+		mapKey := utils.GetCertificateUniqueName(&certs[x].Subject, certs[x].SerialNumber)
+		if found[mapKey] == true {
+			//item already in the list so do not add again
+			scmlog.Debug("Certificate already in the slice. Ignoring duplicate.")
+		} else {
+			scmlog.Debug("Certificate is NOT in the slice. Adding")
+			//add item to the found list
+			found[mapKey] = true
+			//add to the final return slice
+			caCerts = append(caCerts, certs[x])
+
 		}
 	}
 	return
