@@ -5,8 +5,10 @@
 package pkcs12
 
 import (
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"testing"
@@ -56,6 +58,35 @@ func TestPEM(t *testing.T) {
 
 		if _, exists := config.NameToCertificate[commonName]; !exists {
 			t.Errorf("did not find our cert in PEM?: %v", config.NameToCertificate)
+		}
+	}
+}
+
+func TestTrustStore(t *testing.T) {
+	for commonName, base64P12 := range testdata {
+		p12, _ := base64.StdEncoding.DecodeString(base64P12)
+
+		_, cert, err := Decode(p12, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pfxData, err := EncodeTrustStore(rand.Reader, []*x509.Certificate{cert}, "password")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		decodedCerts, err := DecodeTrustStore(pfxData, "password")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(decodedCerts) != 1 {
+			t.Fatal("Unexpected number of certs")
+		}
+
+		if decodedCerts[0].Subject.CommonName != commonName {
+			t.Errorf("expected common name to be %q, but found %q", commonName, decodedCerts[0].Subject.CommonName)
 		}
 	}
 }

@@ -40,6 +40,8 @@ var (
 	oidFriendlyName     = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 20})
 	oidLocalKeyID       = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 21})
 	oidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
+
+	oidJavaTrustStore = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
 )
 
 type pfxPdu struct {
@@ -130,7 +132,7 @@ func ToPEM(pfxData []byte, password string) ([]*pem.Block, error) {
 		return nil, ErrIncorrectPassword
 	}
 
-	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword)
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2)
 
 	if err != nil {
 		return nil, err
@@ -253,7 +255,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 		return nil, nil, nil, err
 	}
 
-	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword)
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -301,7 +303,46 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 	return
 }
 
-func getSafeContents(p12Data, password []byte) (bags []safeBag, updatedPassword []byte, err error) {
+// DecodeTrustStore extracts the certificates from a truststore.
+func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificate, err error) {
+	encodedPassword, err := bmpString(password)
+	if err != nil {
+		return nil, err
+	}
+
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, bag := range bags {
+		switch {
+		case bag.Id.Equal(oidCertBag):
+			certsData, err := decodeCertBag(bag.Value.Bytes)
+			if err != nil {
+				return nil, err
+			}
+			parsedCerts, err := x509.ParseCertificates(certsData)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(parsedCerts) != 1 {
+				err = errors.New("pkcs12: expected exactly one certificate in the certBag")
+				return nil, err
+			}
+
+			certs = append(certs, parsedCerts[0])
+
+		default:
+			return nil, errors.New("pkcs12: expected only certificate bags")
+		}
+	}
+
+	return
+}
+
+func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBag, updatedPassword []byte, err error) {
 	pfx := new(pfxPdu)
 	if err := unmarshal(p12Data, pfx); err != nil {
 		return nil, nil, errors.New("pkcs12: error reading P12 data: " + err.Error())
@@ -342,7 +383,7 @@ func getSafeContents(p12Data, password []byte) (bags []safeBag, updatedPassword 
 		return nil, nil, err
 	}
 
-	if len(authenticatedSafe) != 2 {
+	if len(authenticatedSafe) != expectedItems {
 		return nil, nil, NotImplementedError("expected exactly two items in the authenticated safe")
 	}
 
@@ -448,6 +489,81 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 		return nil, err
 	}
 	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil); err != nil {
+		return nil, err
+	}
+
+	var authenticatedSafeBytes []byte
+	if authenticatedSafeBytes, err = asn1.Marshal(authenticatedSafe[:]); err != nil {
+		return nil, err
+	}
+
+	// compute the MAC
+	pfx.MacData.Mac.Algorithm.Algorithm = oidSHA1
+	pfx.MacData.MacSalt = make([]byte, 8)
+	if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+		return nil, err
+	}
+	pfx.MacData.Iterations = 1
+	if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
+		return nil, err
+	}
+
+	pfx.AuthSafe.ContentType = oidDataContentType
+	pfx.AuthSafe.Content.Class = 2
+	pfx.AuthSafe.Content.Tag = 0
+	pfx.AuthSafe.Content.IsCompound = true
+	if pfx.AuthSafe.Content.Bytes, err = asn1.Marshal(authenticatedSafeBytes); err != nil {
+		return nil, err
+	}
+
+	if pfxData, err = asn1.Marshal(pfx); err != nil {
+		return nil, errors.New("pkcs12: error writing P12 data: " + err.Error())
+	}
+	return
+}
+
+// EncodeTrustStore produces pfxData containing any number of CA certificates
+// (certs) to be trusted. The certificates will be marked with a special OID that
+// allow it to be used as a Java TrustStore in Java 1.8 and newer.
+//
+// Due to the weak encryption primitives used by PKCS#12, it is RECOMMENDED that
+// you specify a hard-coded password (such as pkcs12.DefaultPassword) and protect
+// the resulting pfxData using other means.
+//
+// The rand argument is used to provide entropy for the encryption, and
+// can be set to rand.Reader from the crypto/rand package.
+//
+// EncodeTrustStore creates a single SafeContents that's encrypted with RC2
+// and contains the certificates.
+func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
+	encodedPassword, err := bmpString(password)
+	if err != nil {
+		return nil, err
+	}
+
+	var pfx pfxPdu
+	pfx.Version = 3
+
+	// Setting this attribute will make the certificates trusted in Java >= 1.8
+	var javaTrustStoreAttr pkcs12Attribute
+	javaTrustStoreAttr.Id = oidJavaTrustStore
+	javaTrustStoreAttr.Value.Class = 0
+	javaTrustStoreAttr.Value.Tag = 17
+	javaTrustStoreAttr.Value.IsCompound = true
+
+	var certBags []safeBag
+	for _, cert := range certs {
+		certBag, err := makeCertBag(cert.Raw, []pkcs12Attribute{javaTrustStoreAttr})
+		if err != nil {
+			return nil, err
+		}
+		certBags = append(certBags, *certBag)
+	}
+
+	// Construct an authenticated safe with one SafeContent.
+	// The SafeContents is encrypted and contains the cert bags.
+	var authenticatedSafe [1]contentInfo
+	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword); err != nil {
 		return nil, err
 	}
 
