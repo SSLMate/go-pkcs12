@@ -40,6 +40,8 @@ var (
 	oidFriendlyName     = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 20})
 	oidLocalKeyID       = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 21})
 	oidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
+
+	oidJavaKeyStore = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
 )
 
 type pfxPdu struct {
@@ -206,6 +208,9 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 	case attribute.Id.Equal(oidMicrosoftCSPName):
 		// This key is chosen to match OpenSSL.
 		key = "Microsoft CSP Name"
+		isString = true
+	case attribute.Id.Equal(oidJavaKeyStore):
+		key = oidJavaKeyStore.String()
 		isString = true
 	default:
 		return "", "", errors.New("pkcs12: unknown attribute with OID " + attribute.Id.String())
@@ -424,7 +429,14 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	certBags = append(certBags, *certBag)
 
 	for _, cert := range caCerts {
-		if certBag, err = makeCertBag(cert.Raw, []pkcs12Attribute{}); err != nil {
+		// This will make the CA usable in a truststore in JDK >= 1.8
+		var javaKeyStoreAttr pkcs12Attribute
+		javaKeyStoreAttr.Id = oidJavaKeyStore
+		javaKeyStoreAttr.Value.Class = 0
+		javaKeyStoreAttr.Value.Tag = 17
+		javaKeyStoreAttr.Value.IsCompound = true
+
+		if certBag, err = makeCertBag(cert.Raw, []pkcs12Attribute{javaKeyStoreAttr}); err != nil {
 			return nil, err
 		}
 		certBags = append(certBags, *certBag)
