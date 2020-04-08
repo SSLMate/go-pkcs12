@@ -80,6 +80,15 @@ type safeBag struct {
 	Attributes []pkcs12Attribute `asn1:"set,optional"`
 }
 
+func (bag *safeBag) hasAttribute(id asn1.ObjectIdentifier) bool {
+	for _, attr := range bag.Attributes {
+		if attr.Id.Equal(id) {
+			return true
+		}
+	}
+	return false
+}
+
 type pkcs12Attribute struct {
 	Id    asn1.ObjectIdentifier
 	Value asn1.RawValue `asn1:"set"`
@@ -318,6 +327,9 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 	for _, bag := range bags {
 		switch {
 		case bag.Id.Equal(oidCertBag):
+			if !bag.hasAttribute(oidJavaTrustStore) {
+				return nil, errors.New("pkcs12: trust store contains a certificate that is not marked as trusted")
+			}
 			certsData, err := decodeCertBag(bag.Value.Bytes)
 			if err != nil {
 				return nil, err
