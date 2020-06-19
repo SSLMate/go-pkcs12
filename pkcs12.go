@@ -4,10 +4,13 @@
 // license that can be found in the LICENSE file.
 
 // Package pkcs12 implements some of PKCS#12 (also known as P12 or PFX).
-// It is intended for decoding P12/PFX files for use with the crypto/tls
+// It is intended for decoding DER-encoded P12/PFX files for use with the crypto/tls
 // package, and for encoding P12/PFX files for use by legacy applications which
 // do not support newer formats.  Since PKCS#12 uses weak encryption
 // primitives, it SHOULD NOT be used for new applications.
+//
+// Note that only DER-encoded PKCS#12 files are supported, even though PKCS#12
+// allows BER encoding.  This is becuase encoding/asn1 only supports DER.
 //
 // This package is forked from golang.org/x/crypto/pkcs12, which is frozen.
 // The implementation is distilled from https://tools.ietf.org/html/rfc7292
@@ -240,7 +243,7 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 	return key, value, nil
 }
 
-// Decode extracts a certificate and private key from pfxData. This function
+// Decode extracts a certificate and private key from pfxData, which must be a DER-encoded PKCS#12 file. This function
 // assumes that there is only one certificate and only one private key in the
 // pfxData.  Since PKCS#12 files often contain more than one certificate, you
 // probably want to use DecodeChain instead.
@@ -254,7 +257,7 @@ func Decode(pfxData []byte, password string) (privateKey interface{}, certificat
 }
 
 // DecodeChain extracts a certificate, a CA certificate chain, and private key
-// from pfxData. This function assumes that there is at least one certificate
+// from pfxData, which must be a DER-encoded PKCS#12 file. This function assumes that there is at least one certificate
 // and only one private key in the pfxData.  The first certificate is assumed to
 // be the leaf certificate, and subsequent certificates, if any, are assumed to
 // comprise the CA certificate chain.
@@ -312,7 +315,9 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 	return
 }
 
-// DecodeTrustStore extracts the certificates from a truststore.
+// DecodeTrustStore extracts the certificates from pfxData, which must be a DER-encoded
+// PKCS#12 file containing exclusively certificates with attribute 2.16.840.1.113894.746875.1.1,
+// which is used by Java to designate a trust anchor.
 func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificate, err error) {
 	encodedPassword, err := bmpString(password)
 	if err != nil {
