@@ -12,8 +12,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
-
-	"software.sslmate.com/src/go-pkcs12/internal/rc2"
+	"github.com/fpawel/go-pkcs12/internal/rc2"
 )
 
 var (
