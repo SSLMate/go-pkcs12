@@ -45,8 +45,6 @@ var (
 	oidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
 
 	oidJavaTrustStore = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
-
-	errUnknownAttributeOID = errors.New("pkcs12: unknown attribute OID")
 )
 
 type pfxPdu struct {
@@ -140,7 +138,6 @@ func unmarshal(in []byte, out interface{}) error {
 // are encoded as raw RSA or EC private keys rather than PKCS#8 despite being
 // labeled "PRIVATE KEY".  To decode a PKCS#12 file, use DecodeChain instead,
 // and use the encoding/pem package to convert to PEM if necessary.
-// Unknown attributes are discarded.
 func ToPEM(pfxData []byte, password string) ([]*pem.Block, error) {
 	encodedPassword, err := bmpString(password)
 	if err != nil {
@@ -172,8 +169,8 @@ func convertBag(bag *safeBag, password []byte) (*pem.Block, error) {
 
 	for _, attribute := range bag.Attributes {
 		k, v, err := convertAttribute(&attribute)
-		if err == errUnknownAttributeOID {
-			continue
+		if err != nil {
+			return nil, err
 		}
 		block.Headers[k] = v
 	}
@@ -225,7 +222,7 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 		key = "Microsoft CSP Name"
 		isString = true
 	default:
-		return "", "", errUnknownAttributeOID
+		return "", "", errors.New("pkcs12: unknown attribute with OID " + attribute.Id.String())
 	}
 
 	if isString {
@@ -264,7 +261,6 @@ func Decode(pfxData []byte, password string) (privateKey interface{}, certificat
 // and only one private key in the pfxData.  The first certificate is assumed to
 // be the leaf certificate, and subsequent certificates, if any, are assumed to
 // comprise the CA certificate chain.
-// Unknown attributes are discarded.
 func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, err error) {
 	encodedPassword, err := bmpString(password)
 	if err != nil {

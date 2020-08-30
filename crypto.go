@@ -213,7 +213,6 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 	iv := params.EncryptionScheme.Parameters.Bytes
 
 	var block cipher.Block
-
 	switch {
 	case params.EncryptionScheme.Algorithm.Equal(oidAES256CBC):
 		b, err := aes.NewCipher(key)
@@ -224,11 +223,7 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 	default:
 		return nil, nil, NotImplementedError("pbes2 algorithm " + params.EncryptionScheme.Algorithm.String() + " is not supported")
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, nil, err
-	}
-	return block, iv, err
+	return block, iv, nil
 }
 
 // decryptable abstracts an object that contains ciphertext.
