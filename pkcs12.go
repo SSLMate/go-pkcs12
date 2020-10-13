@@ -44,7 +44,8 @@ var (
 	oidLocalKeyID       = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 21})
 	oidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
 
-	oidJavaTrustStore = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
+	oidJavaTrustStore   = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
+	oidExtendedKeyUsage = asn1.ObjectIdentifier([]int{2, 5, 29, 37, 0})
 )
 
 type pfxPdu struct {
@@ -561,16 +562,27 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 	var pfx pfxPdu
 	pfx.Version = 3
 
+	var certAttributes []pkcs12Attribute
+
 	// Setting this attribute will make the certificates trusted in Java >= 1.8
-	var javaTrustStoreAttr pkcs12Attribute
-	javaTrustStoreAttr.Id = oidJavaTrustStore
-	javaTrustStoreAttr.Value.Class = 0
-	javaTrustStoreAttr.Value.Tag = 17
-	javaTrustStoreAttr.Value.IsCompound = true
+	extKeyUsageOidBytes, err := asn1.Marshal(oidExtendedKeyUsage)
+	if err != nil {
+		return nil, err
+	}
+
+	certAttributes = append(certAttributes, pkcs12Attribute{
+		Id: oidJavaTrustStore,
+		Value: asn1.RawValue{
+			Class:      0,
+			Tag:        17,
+			IsCompound: true,
+			Bytes:      extKeyUsageOidBytes,
+		},
+	})
 
 	var certBags []safeBag
 	for _, cert := range certs {
-		certBag, err := makeCertBag(cert.Raw, []pkcs12Attribute{javaTrustStoreAttr})
+		certBag, err := makeCertBag(cert.Raw, certAttributes)
 		if err != nil {
 			return nil, err
 		}
