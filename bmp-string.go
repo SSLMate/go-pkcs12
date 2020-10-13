@@ -30,6 +30,26 @@ func bmpString(s string) ([]byte, error) {
 	return append(ret, 0, 0), nil
 }
 
+func asn1BmpString(s string) ([]byte, error) {
+	// Slice is computed from the following elements:
+	// - one byte for the type
+	// - len octet(s)
+	// - string
+	ret := make([]byte, 0, 2*len(s)+2)
+
+	ret = append(ret, 30)
+	ret = append(ret, []byte{byte(uint(len(s)) * 2)}...)
+
+	for _, r := range s {
+		if t, _ := utf16.EncodeRune(r); t != 0xfffd {
+			return nil, errors.New("pkcs12: string contains characters that cannot be encoded in UCS-2")
+		}
+		ret = append(ret, byte(r/256), byte(r%256))
+	}
+
+	return ret, nil
+}
+
 func decodeBMPString(bmpString []byte) (string, error) {
 	if len(bmpString)%2 != 0 {
 		return "", errors.New("pkcs12: odd-length BMP string")

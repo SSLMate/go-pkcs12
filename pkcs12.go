@@ -553,7 +553,7 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 //
 // EncodeTrustStore creates a single SafeContents that's encrypted with RC2
 // and contains the certificates.
-func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
+func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string, friendlyName string) (pfxData []byte, err error) {
 	encodedPassword, err := bmpString(password)
 	if err != nil {
 		return nil, err
@@ -579,6 +579,23 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 			Bytes:      extKeyUsageOidBytes,
 		},
 	})
+
+	if friendlyName != "" {
+		encodedFriendlyName, err := asn1BmpString(friendlyName)
+		if err != nil {
+			return nil, err
+		}
+
+		certAttributes = append(certAttributes, pkcs12Attribute{
+			Id: oidFriendlyName,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17,
+				IsCompound: true,
+				Bytes:      encodedFriendlyName,
+			},
+		})
+	}
 
 	var certBags []safeBag
 	for _, cert := range certs {
