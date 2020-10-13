@@ -583,7 +583,33 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 
 	var certBags []safeBag
 	for _, cert := range certs {
-		certBag, err := makeCertBag(cert.Raw, certAttributes)
+
+		bmpFriendlyName, err := bmpString(cert.Subject.String())
+		if err != nil {
+			return nil, err
+		}
+
+		encodedFriendlyName, err := asn1.Marshal(asn1.RawValue{
+			Class:      0,
+			Tag:        30,
+			IsCompound: false,
+			Bytes:      bmpFriendlyName,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		friendlyName := pkcs12Attribute{
+			Id: oidFriendlyName,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17,
+				IsCompound: true,
+				Bytes:      encodedFriendlyName,
+			},
+		}
+
+		certBag, err := makeCertBag(cert.Raw, append(certAttributes, friendlyName))
 		if err != nil {
 			return nil, err
 		}
