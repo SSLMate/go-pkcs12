@@ -140,7 +140,7 @@ func unmarshal(in []byte, out interface{}) error {
 // labeled "PRIVATE KEY".  To decode a PKCS#12 file, use DecodeChain instead,
 // and use the encoding/pem package to convert to PEM if necessary.
 func ToPEM(pfxData []byte, password string) ([]*pem.Block, error) {
-	encodedPassword, err := bmpString(password)
+	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, ErrIncorrectPassword
 	}
@@ -263,7 +263,7 @@ func Decode(pfxData []byte, password string) (privateKey interface{}, certificat
 // be the leaf certificate, and subsequent certificates, if any, are assumed to
 // comprise the CA certificate chain.
 func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, err error) {
-	encodedPassword, err := bmpString(password)
+	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -320,7 +320,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 // PKCS#12 file containing exclusively certificates with attribute 2.16.840.1.113894.746875.1.1,
 // which is used by Java to designate a trust anchor.
 func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificate, err error) {
-	encodedPassword, err := bmpString(password)
+	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +457,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 // LocalKeyId attribute set to the SHA-1 fingerprint of the end-entity
 // certificate.
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
-	encodedPassword, err := bmpString(password)
+	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
 	}
@@ -554,7 +554,7 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // EncodeTrustStore creates a single SafeContents that's encrypted with RC2
 // and contains the certificates.
 func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
-	encodedPassword, err := bmpString(password)
+	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
 	}

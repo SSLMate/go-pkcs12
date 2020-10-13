@@ -26,7 +26,7 @@ func TestPbDecrypterFor(t *testing.T) {
 		},
 	}
 
-	pass, _ := bmpString("Sesame open")
+	pass, _ := bmpStringZeroTerminated("Sesame open")
 
 	_, _, err := pbDecrypterFor(alg, pass)
 	if _, ok := err.(NotImplementedError); !ok {
@@ -64,7 +64,7 @@ func TestPbEncrypterFor(t *testing.T) {
 		},
 	}
 
-	pass, _ := bmpString("Sesame open")
+	pass, _ := bmpStringZeroTerminated("Sesame open")
 
 	_, _, err := pbEncrypterFor(alg, pass)
 	if _, ok := err.(NotImplementedError); !ok {
@@ -125,7 +125,7 @@ func TestPbDecrypt(t *testing.T) {
 				}.RawASN1(),
 			},
 		}
-		password, _ := bmpString("sesame")
+		password, _ := bmpStringZeroTerminated("sesame")
 
 		plaintext, err := pbDecrypt(decryptable, password)
 		if err != test.expectedError {
@@ -159,7 +159,7 @@ func TestPbEncrypt(t *testing.T) {
 				}.RawASN1(),
 			},
 		}
-		p, _ := bmpString("sesame")
+		p, _ := bmpStringZeroTerminated("sesame")
 
 		err := pbEncrypt(&td, c, p)
 		if err != nil {
