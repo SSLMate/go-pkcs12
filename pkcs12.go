@@ -44,8 +44,8 @@ var (
 	oidLocalKeyID       = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 21})
 	oidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
 
-	oidJavaTrustStore   = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
-	oidExtendedKeyUsage = asn1.ObjectIdentifier([]int{2, 5, 29, 37, 0})
+	oidJavaTrustStore      = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
+	oidAnyExtendedKeyUsage = asn1.ObjectIdentifier([]int{2, 5, 29, 37, 0})
 )
 
 type pfxPdu struct {
@@ -565,7 +565,7 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 	var certAttributes []pkcs12Attribute
 
 	// Setting this attribute will make the certificates trusted in Java >= 1.8
-	extKeyUsageOidBytes, err := asn1.Marshal(oidExtendedKeyUsage)
+	extKeyUsageOidBytes, err := asn1.Marshal(oidAnyExtendedKeyUsage)
 	if err != nil {
 		return nil, err
 	}
