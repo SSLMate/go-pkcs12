@@ -564,12 +564,13 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 
 	var certAttributes []pkcs12Attribute
 
-	// Setting this attribute will make the certificates trusted in Java >= 1.8
 	extKeyUsageOidBytes, err := asn1.Marshal(oidAnyExtendedKeyUsage)
 	if err != nil {
 		return nil, err
 	}
 
+	// the oidJavaTrustStore attribute contains the EKUs for which
+	// this trust anchor will be valid
 	certAttributes = append(certAttributes, pkcs12Attribute{
 		Id: oidJavaTrustStore,
 		Value: asn1.RawValue{
