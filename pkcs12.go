@@ -555,7 +555,9 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // and contains the certificates.
 //
 // The Subject of the certificates are used as the Friendly Names (Aliases)
-// within the resulting pfxData.
+// within the resulting pfxData. If certificates share a Subject, then the
+// resulting Friendly Names (Aliases) will be identical, which Java may treat as
+// the same entry when used as a Java TrustStore, e.g. with `keytool`.
 func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
 	var certsWithFriendlyNames []CertWithFriendlyName
 	for _, cert := range certs {
@@ -581,6 +583,10 @@ type CertWithFriendlyName struct {
 // This is identical to EncodeTruststore, but also allows for setting specific
 // Friendly Names (Aliases) to be used per certificate, by specifying a slice
 // of CertWithFriendlyName.
+//
+// If the same Friendly Name is used for more than one certificate, then the
+// resulting Friendly Names (Aliases) in the pfxData will be identical, which Java
+// may treat as the same entry when used as a Java TrustStore, e.g. with `keytool`.
 //
 // Due to the weak encryption primitives used by PKCS#12, it is RECOMMENDED that
 // you specify a hard-coded password (such as pkcs12.DefaultPassword) and protect
