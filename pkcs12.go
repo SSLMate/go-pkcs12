@@ -10,7 +10,7 @@
 // primitives, it SHOULD NOT be used for new applications.
 //
 // Note that only DER-encoded PKCS#12 files are supported, even though PKCS#12
-// allows BER encoding.  This is becuase encoding/asn1 only supports DER.
+// allows BER encoding.  This is because encoding/asn1 only supports DER.
 //
 // This package is forked from golang.org/x/crypto/pkcs12, which is frozen.
 // The implementation is distilled from https://tools.ietf.org/html/rfc7292
