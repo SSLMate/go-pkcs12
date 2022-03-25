@@ -13,15 +13,20 @@ import (
 var bmpStringTests = []struct {
 	in          string
 	expectedHex string
+	zeroTerminated  bool
 	shouldFail  bool
 }{
-	{"", "0000", false},
+	{"", "0000", true, false},
+	{"", "", false, false},
 	// Example from https://tools.ietf.org/html/rfc7292#appendix-B.
-	{"Beavis", "0042006500610076006900730000", false},
+	{"Beavis", "0042006500610076006900730000", true, false},
+	{"Beavis", "004200650061007600690073", false, false},
 	// Some characters from the "Letterlike Symbols Unicode block".
-	{"\u2115 - Double-struck N", "21150020002d00200044006f00750062006c0065002d00730074007200750063006b0020004e0000", false},
+	{"\u2115 - Double-struck N", "21150020002d00200044006f00750062006c0065002d00730074007200750063006b0020004e0000", true, false},
+	{"\u2115 - Double-struck N", "21150020002d00200044006f00750062006c0065002d00730074007200750063006b0020004e", false, false},
 	// any character outside the BMP should trigger an error.
-	{"\U0001f000 East wind (Mahjong)", "", true},
+	{"\U0001f000 East wind (Mahjong)", "", true, true},
+	{"\U0001f000 East wind (Mahjong)", "", false, true},
 }
 
 func TestBMPString(t *testing.T) {
@@ -31,7 +36,14 @@ func TestBMPString(t *testing.T) {
 			t.Fatalf("#%d: failed to decode expectation", i)
 		}
 
-		out, err := bmpString(test.in)
+		var out []byte
+
+		if(test.zeroTerminated) {
+			out, err = bmpStringZeroTerminated(test.in)
+		} else {
+			out, err = bmpString(test.in)
+		}
+
 		if err == nil && test.shouldFail {
 			t.Errorf("#%d: expected to fail, but produced %x", i, out)
 			continue
