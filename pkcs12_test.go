@@ -91,32 +91,6 @@ func TestTrustStore(t *testing.T) {
 	}
 }
 
-func ExampleToPEM() {
-	p12, _ := base64.StdEncoding.DecodeString(`MIIJzgIBAzCCCZQGCS ... CA+gwggPk==`)
-
-	blocks, err := ToPEM(p12, "password")
-	if err != nil {
-		panic(err)
-	}
-
-	var pemData []byte
-	for _, b := range blocks {
-		pemData = append(pemData, pem.EncodeToMemory(b)...)
-	}
-
-	// then use PEM data for tls to construct tls certificate:
-	cert, err := tls.X509KeyPair(pemData, pemData)
-	if err != nil {
-		panic(err)
-	}
-
-	config := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}
-
-	_ = config
-}
-
 func TestPBES2(t *testing.T) {
 	// This P12 PDU is a self-signed certificate exported via Windows certmgr.
 	// It is encrypted with the following options (verified via openssl): PBES2, PBKDF2, AES-256-CBC, Iteration 2000, PRF hmacWithSHA256
