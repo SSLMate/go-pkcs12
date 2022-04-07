@@ -554,7 +554,51 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 //
 // EncodeTrustStore creates a single SafeContents that's encrypted with RC2
 // and contains the certificates.
+//
+// The Subject of the certificates are used as the Friendly Names (Aliases)
+// within the resulting pfxData. If certificates share a Subject, then the
+// resulting Friendly Names (Aliases) will be identical, which Java may treat as
+// the same entry when used as a Java TrustStore, e.g. with `keytool`.
 func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
+	var certsWithFriendlyNames []TrustStoreEntry
+	for _, cert := range certs {
+		certsWithFriendlyNames = append(certsWithFriendlyNames, TrustStoreEntry{
+			Cert:         cert,
+			FriendlyName: cert.Subject.String(),
+		})
+	}
+	return EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password)
+}
+
+// TrustStoreEntry contains an X509 Certificate, along with the Friendly Name
+// (Alias) to be used for it when encoded into pfxData.
+type TrustStoreEntry struct {
+	Cert         *x509.Certificate
+	FriendlyName string
+}
+
+// EncodeTrustStoreEntries produces pfxData containing any number of CA
+// certificates (certs) to be trusted. The certificates will be marked with a
+// special OID that allow it to be used as a Java TrustStore in Java 1.8 and newer.
+//
+// This is identical to EncodeTruststore, but also allows for setting specific
+// Friendly Names (Aliases) to be used per certificate, by specifying a slice
+// of TrustStoreEntry.
+//
+// If the same Friendly Name is used for more than one certificate, then the
+// resulting Friendly Names (Aliases) in the pfxData will be identical, which Java
+// may treat as the same entry when used as a Java TrustStore, e.g. with `keytool`.
+//
+// Due to the weak encryption primitives used by PKCS#12, it is RECOMMENDED that
+// you specify a hard-coded password (such as pkcs12.DefaultPassword) and protect
+// the resulting pfxData using other means.
+//
+// The rand argument is used to provide entropy for the encryption, and
+// can be set to rand.Reader from the crypto/rand package.
+//
+// EncodeTrustStoreEntries creates a single SafeContents that's encrypted
+// with RC2 and contains the certificates.
+func EncodeTrustStoreEntries(rand io.Reader, certsWithFriendlyNames []TrustStoreEntry, password string) (pfxData []byte, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
@@ -583,9 +627,9 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 	})
 
 	var certBags []safeBag
-	for _, cert := range certs {
+	for _, TrustStoreEntry := range certsWithFriendlyNames {
 
-		bmpFriendlyName, err := bmpString(cert.Subject.String())
+		bmpFriendlyName, err := bmpString(TrustStoreEntry.FriendlyName)
 		if err != nil {
 			return nil, err
 		}
@@ -610,7 +654,7 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 			},
 		}
 
-		certBag, err := makeCertBag(cert.Raw, append(certAttributes, friendlyName))
+		certBag, err := makeCertBag(TrustStoreEntry.Cert.Raw, append(certAttributes, friendlyName))
 		if err != nil {
 			return nil, err
 		}
