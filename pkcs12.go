@@ -558,7 +558,8 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // The Subject of the certificates are used as the Friendly Names (Aliases)
 // within the resulting pfxData. If certificates share a Subject, then the
 // resulting Friendly Names (Aliases) will be identical, which Java may treat as
-// the same entry when used as a Java TrustStore, e.g. with `keytool`.
+// the same entry when used as a Java TrustStore, e.g. with `keytool`.  To
+// customize the Friendly Names, use EncodeTrustStoreEntries.
 func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
 	var certsWithFriendlyNames []TrustStoreEntry
 	for _, cert := range certs {
@@ -570,18 +571,17 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 	return EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password)
 }
 
-// TrustStoreEntry contains an X509 Certificate, along with the Friendly Name
-// (Alias) to be used for it when encoded into pfxData.
+// TrustStoreEntry represents an entry in a Java TrustStore.
 type TrustStoreEntry struct {
 	Cert         *x509.Certificate
 	FriendlyName string
 }
 
 // EncodeTrustStoreEntries produces pfxData containing any number of CA
-// certificates (certs) to be trusted. The certificates will be marked with a
+// certificates (entries) to be trusted. The certificates will be marked with a
 // special OID that allow it to be used as a Java TrustStore in Java 1.8 and newer.
 //
-// This is identical to EncodeTruststore, but also allows for setting specific
+// This is identical to EncodeTrustStore, but also allows for setting specific
 // Friendly Names (Aliases) to be used per certificate, by specifying a slice
 // of TrustStoreEntry.
 //
@@ -598,7 +598,7 @@ type TrustStoreEntry struct {
 //
 // EncodeTrustStoreEntries creates a single SafeContents that's encrypted
 // with RC2 and contains the certificates.
-func EncodeTrustStoreEntries(rand io.Reader, certsWithFriendlyNames []TrustStoreEntry, password string) (pfxData []byte, err error) {
+func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
@@ -627,9 +627,9 @@ func EncodeTrustStoreEntries(rand io.Reader, certsWithFriendlyNames []TrustStore
 	})
 
 	var certBags []safeBag
-	for _, TrustStoreEntry := range certsWithFriendlyNames {
+	for _, entry := range entries {
 
-		bmpFriendlyName, err := bmpString(TrustStoreEntry.FriendlyName)
+		bmpFriendlyName, err := bmpString(entry.FriendlyName)
 		if err != nil {
 			return nil, err
 		}
@@ -654,7 +654,7 @@ func EncodeTrustStoreEntries(rand io.Reader, certsWithFriendlyNames []TrustStore
 			},
 		}
 
-		certBag, err := makeCertBag(TrustStoreEntry.Cert.Raw, append(certAttributes, friendlyName))
+		certBag, err := makeCertBag(entry.Cert.Raw, append(certAttributes, friendlyName))
 		if err != nil {
 			return nil, err
 		}
