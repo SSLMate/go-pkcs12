@@ -381,10 +381,10 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 	}
 
 	if len(pfx.MacData.Mac.Algorithm.Algorithm) == 0 {
-		return nil, nil, errors.New("pkcs12: no MAC in data")
-	}
-
-	if err := verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password); err != nil {
+		if !(len(password) == 2 && password[0] == 0 && password[1] == 0) {
+			return nil, nil, errors.New("pkcs12: no MAC in data")
+		}
+	} else if err := verifyMac(&pfx.MacData, pfx.AuthSafe.Content.Bytes, password); err != nil {
 		if err == ErrIncorrectPassword && len(password) == 2 && password[0] == 0 && password[1] == 0 {
 			// some implementations use an empty byte array
 			// for the empty string password try one more
