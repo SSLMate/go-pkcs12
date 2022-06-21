@@ -452,12 +452,13 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 // can be set to [crypto/rand.Reader].
 //
 // Encode emulates the behavior of OpenSSL's PKCS12_create: it creates two
-// SafeContents: one that's encrypted with RC2 and contains the certificates,
+// SafeContents: one that contains the certificates and it's encrypted
+// with RC2 when desCert is false, otherwise triple DES encryption is used;
 // and another that is unencrypted and contains the private key shrouded with
 // 3DES  The private key bag and the end-entity certificate bag have the
 // LocalKeyId attribute set to the SHA-1 fingerprint of the end-entity
 // certificate.
-func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string, desCert bool) (pfxData []byte, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
@@ -504,10 +505,10 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword, desCert); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil, false); err != nil {
 		return nil, err
 	}
 
@@ -552,15 +553,16 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // The rand argument is used to provide entropy for the encryption, and
 // can be set to [crypto/rand.Reader].
 //
-// EncodeTrustStore creates a single SafeContents that's encrypted with RC2
-// and contains the certificates.
+// EncodeTrustStore creates a single SafeContents that contains the certificates
+// and it's encrypted with RC2 if desCert is false, otherwise triple DES encryption
+// is used.
 //
 // The Subject of the certificates are used as the Friendly Names (Aliases)
 // within the resulting pfxData. If certificates share a Subject, then the
 // resulting Friendly Names (Aliases) will be identical, which Java may treat as
 // the same entry when used as a Java TrustStore, e.g. with `keytool`.  To
 // customize the Friendly Names, use [EncodeTrustStoreEntries].
-func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
+func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string, desCert bool) (pfxData []byte, err error) {
 	var certsWithFriendlyNames []TrustStoreEntry
 	for _, cert := range certs {
 		certsWithFriendlyNames = append(certsWithFriendlyNames, TrustStoreEntry{
@@ -568,7 +570,7 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 			FriendlyName: cert.Subject.String(),
 		})
 	}
-	return EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password)
+	return EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password, desCert)
 }
 
 // TrustStoreEntry represents an entry in a Java TrustStore.
@@ -596,9 +598,10 @@ type TrustStoreEntry struct {
 // The rand argument is used to provide entropy for the encryption, and
 // can be set to [crypto/rand.Reader].
 //
-// EncodeTrustStoreEntries creates a single SafeContents that's encrypted
-// with RC2 and contains the certificates.
-func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
+// EncodeTrustStoreEntries creates a single SafeContents that contains the certificates
+// and it's encrypted with RC2 if desCert is false, otherwise triple DES encryption
+// is used.
+func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string, desCert bool) (pfxData []byte, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
@@ -664,7 +667,7 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 	// Construct an authenticated safe with one SafeContent.
 	// The SafeContents is encrypted and contains the cert bags.
 	var authenticatedSafe [1]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword, desCert); err != nil {
 		return nil, err
 	}
 
@@ -711,7 +714,7 @@ func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeB
 	return
 }
 
-func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci contentInfo, err error) {
+func makeSafeContents(rand io.Reader, bags []safeBag, password []byte, desCert bool) (ci contentInfo, err error) {
 	var data []byte
 	if data, err = asn1.Marshal(bags); err != nil {
 		return
@@ -733,6 +736,10 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci conte
 
 		var algo pkix.AlgorithmIdentifier
 		algo.Algorithm = oidPBEWithSHAAnd40BitRC2CBC
+		if desCert {
+			algo.Algorithm = oidPBEWithSHAAnd3KeyTripleDESCBC
+		}
+
 		if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
 			return
 		}

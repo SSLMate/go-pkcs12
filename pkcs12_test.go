@@ -71,7 +71,7 @@ func TestTrustStore(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		pfxData, err := EncodeTrustStore(rand.Reader, []*x509.Certificate{cert}, "password")
+		pfxData, err := EncodeTrustStore(rand.Reader, []*x509.Certificate{cert}, "password", false)
 		if err != nil {
 			t.Fatal(err)
 		}
