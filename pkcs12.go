@@ -260,8 +260,8 @@ func Decode(pfxData []byte, password string) (privateKey interface{}, certificat
 
 // DecodeChain extracts a certificate, a CA certificate chain, and private key
 // from pfxData, which must be a DER-encoded PKCS#12 file. This function assumes that there is at least one certificate
-// and only one private key in the pfxData.  The first certificate is assumed to
-// be the leaf certificate, and subsequent certificates, if any, are assumed to
+// and only one private key in the pfxData.  The last certificate is assumed to
+// be the leaf certificate, and all preceding certificates, if any, are assumed to
 // comprise the CA certificate chain.
 func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
@@ -274,7 +274,8 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 		return nil, nil, nil, err
 	}
 
-	for _, bag := range bags {
+	bagLen := len(bags)
+	for i, bag := range bags {
 		switch {
 		case bag.Id.Equal(oidCertBag):
 			certsData, err := decodeCertBag(bag.Value.Bytes)
@@ -289,7 +290,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 				err = errors.New("pkcs12: expected exactly one certificate in the certBag")
 				return nil, nil, nil, err
 			}
-			if certificate == nil {
+			if (certificate == nil && i == bagLen-1) || (certificate == nil && bagLen <= 2) { //assumes last cert in bag is the leaf cert or if there is only 1 cert in the bag assume it's the leaf cert
 				certificate = certs[0]
 			} else {
 				caCerts = append(caCerts, certs[0])
