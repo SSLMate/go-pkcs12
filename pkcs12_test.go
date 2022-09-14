@@ -17,7 +17,7 @@ import (
 
 func TestPfx(t *testing.T) {
 	for commonName, base64P12 := range testdata {
-		p12, err := base64decode(base64P12)
+		p12, err := base64.StdEncoding.DecodeString(noSpace.Replace(base64P12))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,7 +39,7 @@ func TestPfx(t *testing.T) {
 
 func TestPEM(t *testing.T) {
 	for commonName, base64P12 := range testdata {
-		p12, err := base64decode(base64P12)
+		p12, err := base64.StdEncoding.DecodeString(noSpace.Replace(base64P12))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,7 +71,7 @@ func TestPEM(t *testing.T) {
 
 func TestTrustStore(t *testing.T) {
 	for commonName, base64P12 := range testdata {
-		p12, err := base64decode(base64P12)
+		p12, err := base64.StdEncoding.DecodeString(noSpace.Replace(base64P12))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +155,7 @@ func TestPBES2(t *testing.T) {
 		cTf8MehzJRSgkl5lmdW8+wJmOPmoRznUe5lvKT6x7op6OqiBjVKcl0QLMhvkJBY4TczbrRRA97G9
 		6BHN4DBJpg4kCM/votw4eHQPrhPVce0wSzAvMAsGCWCGSAFlAwQCAQQgj1Iu53yHiWVEMsvWiRSz
 		VpPEeNzjeXXdrfuUMhBDWAQEFLYa3qh/1OH1CugDTUZD8yt4lOIFAgIH0A==`
-	p12, err := base64decode(base64P12)
+	p12, err := base64.StdEncoding.DecodeString(noSpace.Replace(base64P12))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,8 +280,8 @@ var testdata = map[string]string{
 
 func TestDecodeAES256(t *testing.T) {
 	commonname := "paulschou.com"
-	for _, b := range base64P12AES256andDES3 {
-		p12, err := base64decode(b)
+	for _, base64P12 := range base64P12AES256andDES3 {
+		p12, err := base64.StdEncoding.DecodeString(noSpace.Replace(base64P12))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -449,7 +449,4 @@ var base64P12AES256andDES3 = []string{`
 	`,
 }
 
-func base64decode(b64 string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(
-		strings.TrimSpace(strings.ReplaceAll(b64, "\t", "")))
-}
+var noSpace = strings.NewReplacer("\t", "", "\n", "", "\r", "", " ", "")
