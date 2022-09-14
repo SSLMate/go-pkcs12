@@ -22,13 +22,13 @@ import (
 )
 
 var (
-	oidPBEWithSHAAnd3KeyTripleDESCBC = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 1, 3})
-	oidPBEWithSHAAnd40BitRC2CBC      = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 1, 6})
-	oidPBES2                         = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 13})
-	oidPBKDF2                        = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 12})
-	oidHmacWithSHA1                  = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 7})
-	oidHmacWithSHA256                = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 9})
-	oidAES256CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 42})
+	OidPBEWithSHAAnd3KeyTripleDESCBC = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 1, 3})
+	OidPBEWithSHAAnd40BitRC2CBC      = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 1, 6})
+	OidPBES2                         = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 13})
+	OidPBKDF2                        = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 12})
+	OidHmacWithSHA1                  = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 7})
+	OidHmacWithSHA256                = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 9})
+	OidAES256CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 42})
 )
 
 // pbeCipher is an abstraction of a PKCS#12 cipher.
@@ -78,11 +78,11 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 	var cipherType pbeCipher
 
 	switch {
-	case algorithm.Algorithm.Equal(oidPBEWithSHAAnd3KeyTripleDESCBC):
+	case algorithm.Algorithm.Equal(OidPBEWithSHAAnd3KeyTripleDESCBC):
 		cipherType = shaWithTripleDESCBC{}
-	case algorithm.Algorithm.Equal(oidPBEWithSHAAnd40BitRC2CBC):
+	case algorithm.Algorithm.Equal(OidPBEWithSHAAnd40BitRC2CBC):
 		cipherType = shaWith40BitRC2CBC{}
-	case algorithm.Algorithm.Equal(oidPBES2):
+	case algorithm.Algorithm.Equal(OidPBES2):
 		// rfc7292#appendix-B.1 (the original PKCS#12 PBE) requires passwords formatted as BMPStrings.
 		// However, rfc8018#section-3 recommends that the password for PBES2 follow ASCII or UTF-8.
 		// This is also what Windows expects.
@@ -187,7 +187,7 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 		return nil, nil, err
 	}
 
-	if !params.Kdf.Algorithm.Equal(oidPBKDF2) {
+	if !params.Kdf.Algorithm.Equal(OidPBKDF2) {
 		return nil, nil, NotImplementedError("kdf algorithm " + params.Kdf.Algorithm.String() + " is not supported")
 	}
 
@@ -201,9 +201,9 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 
 	var prf func() hash.Hash
 	switch {
-	case kdfParams.Prf.Algorithm.Equal(oidHmacWithSHA256):
+	case kdfParams.Prf.Algorithm.Equal(OidHmacWithSHA256):
 		prf = sha256.New
-	case kdfParams.Prf.Algorithm.Equal(oidHmacWithSHA1):
+	case kdfParams.Prf.Algorithm.Equal(OidHmacWithSHA1):
 		prf = sha1.New
 	case kdfParams.Prf.Algorithm.Equal(asn1.ObjectIdentifier([]int{})):
 		prf = sha1.New
@@ -214,7 +214,7 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 
 	var block cipher.Block
 	switch {
-	case params.EncryptionScheme.Algorithm.Equal(oidAES256CBC):
+	case params.EncryptionScheme.Algorithm.Equal(OidAES256CBC):
 		b, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, nil, err

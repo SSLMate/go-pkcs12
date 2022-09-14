@@ -37,15 +37,15 @@ import (
 const DefaultPassword = "changeit"
 
 var (
-	oidDataContentType          = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 1})
-	oidEncryptedDataContentType = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 6})
+	OidDataContentType          = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 1})
+	OidEncryptedDataContentType = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 6})
 
-	oidFriendlyName     = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 20})
-	oidLocalKeyID       = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 21})
-	oidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
+	OidFriendlyName     = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 20})
+	OidLocalKeyID       = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 21})
+	OidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
 
-	oidJavaTrustStore      = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
-	oidAnyExtendedKeyUsage = asn1.ObjectIdentifier([]int{2, 5, 29, 37, 0})
+	OidJavaTrustStore      = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 113894, 746875, 1, 1})
+	OidAnyExtendedKeyUsage = asn1.ObjectIdentifier([]int{2, 5, 29, 37, 0})
 )
 
 type pfxPdu struct {
@@ -178,14 +178,14 @@ func convertBag(bag *safeBag, password []byte) (*pem.Block, error) {
 	}
 
 	switch {
-	case bag.Id.Equal(oidCertBag):
+	case bag.Id.Equal(OidCertBag):
 		block.Type = certificateType
 		certsData, err := decodeCertBag(bag.Value.Bytes)
 		if err != nil {
 			return nil, err
 		}
 		block.Bytes = certsData
-	case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
+	case bag.Id.Equal(OidPKCS8ShroundedKeyBag):
 		block.Type = privateKeyType
 
 		key, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, password)
@@ -214,12 +214,12 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 	isString := false
 
 	switch {
-	case attribute.Id.Equal(oidFriendlyName):
+	case attribute.Id.Equal(OidFriendlyName):
 		key = "friendlyName"
 		isString = true
-	case attribute.Id.Equal(oidLocalKeyID):
+	case attribute.Id.Equal(OidLocalKeyID):
 		key = "localKeyId"
-	case attribute.Id.Equal(oidMicrosoftCSPName):
+	case attribute.Id.Equal(OidMicrosoftCSPName):
 		// This key is chosen to match OpenSSL.
 		key = "Microsoft CSP Name"
 		isString = true
@@ -276,7 +276,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 
 	for _, bag := range bags {
 		switch {
-		case bag.Id.Equal(oidCertBag):
+		case bag.Id.Equal(OidCertBag):
 			certsData, err := decodeCertBag(bag.Value.Bytes)
 			if err != nil {
 				return nil, nil, nil, err
@@ -295,7 +295,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 				caCerts = append(caCerts, certs[0])
 			}
 
-		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
+		case bag.Id.Equal(OidPKCS8ShroundedKeyBag):
 			if privateKey != nil {
 				err = errors.New("pkcs12: expected exactly one key bag")
 				return nil, nil, nil, err
@@ -333,8 +333,8 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 
 	for _, bag := range bags {
 		switch {
-		case bag.Id.Equal(oidCertBag):
-			if !bag.hasAttribute(oidJavaTrustStore) {
+		case bag.Id.Equal(OidCertBag):
+			if !bag.hasAttribute(OidJavaTrustStore) {
 				return nil, errors.New("pkcs12: trust store contains a certificate that is not marked as trusted")
 			}
 			certsData, err := decodeCertBag(bag.Value.Bytes)
@@ -371,7 +371,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 		return nil, nil, NotImplementedError("can only decode v3 PFX PDU's")
 	}
 
-	if !pfx.AuthSafe.ContentType.Equal(oidDataContentType) {
+	if !pfx.AuthSafe.ContentType.Equal(OidDataContentType) {
 		return nil, nil, NotImplementedError("only password-protected PFX is implemented")
 	}
 
@@ -410,11 +410,11 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 		var data []byte
 
 		switch {
-		case ci.ContentType.Equal(oidDataContentType):
+		case ci.ContentType.Equal(OidDataContentType):
 			if err := unmarshal(ci.Content.Bytes, &data); err != nil {
 				return nil, nil, err
 			}
-		case ci.ContentType.Equal(oidEncryptedDataContentType):
+		case ci.ContentType.Equal(OidEncryptedDataContentType):
 			var encryptedData encryptedData
 			if err := unmarshal(ci.Content.Bytes, &encryptedData); err != nil {
 				return nil, nil, err
@@ -446,9 +446,9 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	KeyBagAlgorithm:  oidPBEWithSHAAnd3KeyTripleDESCBC,
-	CertBagAlgorithm: oidPBEWithSHAAnd40BitRC2CBC,
-	MACAlgorithm:     oidSHA1,
+	KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
+	CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
+	MACAlgorithm:     OidSHA1,
 }
 
 // Encode produces pfxData containing one private key (privateKey), an
@@ -499,7 +499,7 @@ func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.
 
 	var certFingerprint = sha1.Sum(certificate.Raw)
 	var localKeyIdAttr pkcs12Attribute
-	localKeyIdAttr.Id = oidLocalKeyID
+	localKeyIdAttr.Id = OidLocalKeyID
 	localKeyIdAttr.Value.Class = 0
 	localKeyIdAttr.Value.Tag = 17
 	localKeyIdAttr.Value.IsCompound = true
@@ -522,7 +522,7 @@ func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.
 	}
 
 	var keyBag safeBag
-	keyBag.Id = oidPKCS8ShroundedKeyBag
+	keyBag.Id = OidPKCS8ShroundedKeyBag
 	keyBag.Value.Class = 2
 	keyBag.Value.Tag = 0
 	keyBag.Value.IsCompound = true
@@ -558,7 +558,7 @@ func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.
 		return nil, err
 	}
 
-	pfx.AuthSafe.ContentType = oidDataContentType
+	pfx.AuthSafe.ContentType = OidDataContentType
 	pfx.AuthSafe.Content.Class = 2
 	pfx.AuthSafe.Content.Tag = 0
 	pfx.AuthSafe.Content.IsCompound = true
@@ -665,15 +665,15 @@ func EncodeTrustStoreEntriesWithConfig(rand io.Reader, entries []TrustStoreEntry
 
 	var certAttributes []pkcs12Attribute
 
-	extKeyUsageOidBytes, err := asn1.Marshal(oidAnyExtendedKeyUsage)
+	extKeyUsageOidBytes, err := asn1.Marshal(OidAnyExtendedKeyUsage)
 	if err != nil {
 		return nil, err
 	}
 
-	// the oidJavaTrustStore attribute contains the EKUs for which
+	// the OidJavaTrustStore attribute contains the EKUs for which
 	// this trust anchor will be valid
 	certAttributes = append(certAttributes, pkcs12Attribute{
-		Id: oidJavaTrustStore,
+		Id: OidJavaTrustStore,
 		Value: asn1.RawValue{
 			Class:      0,
 			Tag:        17,
@@ -701,7 +701,7 @@ func EncodeTrustStoreEntriesWithConfig(rand io.Reader, entries []TrustStoreEntry
 		}
 
 		friendlyName := pkcs12Attribute{
-			Id: oidFriendlyName,
+			Id: OidFriendlyName,
 			Value: asn1.RawValue{
 				Class:      0,
 				Tag:        17,
@@ -740,7 +740,7 @@ func EncodeTrustStoreEntriesWithConfig(rand io.Reader, entries []TrustStoreEntry
 		return nil, err
 	}
 
-	pfx.AuthSafe.ContentType = oidDataContentType
+	pfx.AuthSafe.ContentType = OidDataContentType
 	pfx.AuthSafe.Content.Class = 2
 	pfx.AuthSafe.Content.Tag = 0
 	pfx.AuthSafe.Content.IsCompound = true
@@ -756,7 +756,7 @@ func EncodeTrustStoreEntriesWithConfig(rand io.Reader, entries []TrustStoreEntry
 
 func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeBag, err error) {
 	certBag = new(safeBag)
-	certBag.Id = oidCertBag
+	certBag.Id = OidCertBag
 	certBag.Value.Class = 2
 	certBag.Value.Tag = 0
 	certBag.Value.IsCompound = true
@@ -774,7 +774,7 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte, algorithm
 	}
 
 	if password == nil {
-		ci.ContentType = oidDataContentType
+		ci.ContentType = OidDataContentType
 		ci.Content.Class = 2
 		ci.Content.Tag = 0
 		ci.Content.IsCompound = true
@@ -794,13 +794,13 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte, algorithm
 
 		var encryptedData encryptedData
 		encryptedData.Version = 0
-		encryptedData.EncryptedContentInfo.ContentType = oidDataContentType
+		encryptedData.EncryptedContentInfo.ContentType = OidDataContentType
 		encryptedData.EncryptedContentInfo.ContentEncryptionAlgorithm = algo
 		if err = pbEncrypt(&encryptedData.EncryptedContentInfo, data, password); err != nil {
 			return
 		}
 
-		ci.ContentType = oidEncryptedDataContentType
+		ci.ContentType = OidEncryptedDataContentType
 		ci.Content.Class = 2
 		ci.Content.Tag = 0
 		ci.Content.IsCompound = true
