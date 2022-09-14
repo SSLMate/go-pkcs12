@@ -14,9 +14,9 @@ import (
 
 var (
 	// see https://tools.ietf.org/html/rfc7292#appendix-D
-	OidCertTypeX509Certificate = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 22, 1})
-	OidPKCS8ShroundedKeyBag    = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 2})
-	OidCertBag                 = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 3})
+	oidCertTypeX509Certificate = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 22, 1})
+	oidPKCS8ShroundedKeyBag    = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 2})
+	oidCertBag                 = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 3})
 )
 
 type certBag struct {
@@ -82,7 +82,7 @@ func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err error) {
 	if err := unmarshal(asn1Data, bag); err != nil {
 		return nil, errors.New("pkcs12: error decoding cert bag: " + err.Error())
 	}
-	if !bag.Id.Equal(OidCertTypeX509Certificate) {
+	if !bag.Id.Equal(oidCertTypeX509Certificate) {
 		return nil, NotImplementedError("only X509 certificates are supported")
 	}
 	return bag.Data, nil
@@ -90,7 +90,7 @@ func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err error) {
 
 func encodeCertBag(x509Certificates []byte) (asn1Data []byte, err error) {
 	var bag certBag
-	bag.Id = OidCertTypeX509Certificate
+	bag.Id = oidCertTypeX509Certificate
 	bag.Data = x509Certificates
 	if asn1Data, err = asn1.Marshal(bag); err != nil {
 		return nil, errors.New("pkcs12: error encoding cert bag: " + err.Error())
