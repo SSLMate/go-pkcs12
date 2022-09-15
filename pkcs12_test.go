@@ -73,26 +73,26 @@ func TestTrustStore(t *testing.T) {
 	for commonName, base64P12 := range testdata {
 		p12, err := base64.StdEncoding.DecodeString(noSpace.Replace(base64P12))
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s: %s", commonName, err)
 		}
 
 		_, cert, err := Decode(p12, "")
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s: %s", commonName, err)
 		}
 
 		pfxData, err := EncodeTrustStore(rand.Reader, []*x509.Certificate{cert}, "password")
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s: %s", commonName, err)
 		}
 
 		decodedCerts, err := DecodeTrustStore(pfxData, "password")
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s: %s", commonName, err)
 		}
 
 		if len(decodedCerts) != 1 {
-			t.Fatal("Unexpected number of certs")
+			t.Fatalf("%s: Unexpected number of certs", commonName)
 		}
 
 		if decodedCerts[0].Subject.CommonName != commonName {

@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -473,6 +474,24 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	return EncodeWithConfig(rand, privateKey, certificate, caCerts, password, DefaultConfig)
 }
 
+func check(prefix string, c *x509.Certificate) error {
+	if c == nil {
+		return fmt.Errorf("%s, pointer has no value", prefix)
+	}
+	if len(c.Raw) == 0 {
+		return fmt.Errorf("%s, empty (raw bytes)", prefix)
+	}
+	var raw asn1.RawValue
+	rest, err := asn1.Unmarshal(c.Raw, &raw)
+	if err != nil {
+		return fmt.Errorf("%s, error parsing %s", prefix, err)
+	}
+	if len(rest) > 0 {
+		return fmt.Errorf("%s, malformed (raw bytes)", prefix)
+	}
+	return nil
+}
+
 // EncodeWithConfig produces pfxData containing one private key (privateKey),
 // an end-entity certificate (certificate), and any number of CA certificates
 // (caCerts).
@@ -492,6 +511,16 @@ func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := check("Certificate", certificate); err != nil {
+		return pfxData, err
+	}
+
+	for i, c := range caCerts {
+		if err := check(fmt.Sprintf("CA certificate #%d", i), c); err != nil {
+			return pfxData, err
+		}
 	}
 
 	var pfx pfxPdu
@@ -658,6 +687,12 @@ func EncodeTrustStoreEntriesWithConfig(rand io.Reader, entries []TrustStoreEntry
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
+	}
+
+	for i, c := range entries {
+		if err := check(fmt.Sprintf("TrustStoreEntry #%d", i), c.Cert); err != nil {
+			return pfxData, err
+		}
 	}
 
 	var pfx pfxPdu
