@@ -19,6 +19,7 @@ package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
@@ -444,12 +445,29 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 // PKCS#12 file.
 type Config struct {
 	MACAlgorithm, CertBagAlgorithm, KeyBagAlgorithm asn1.ObjectIdentifier
+	HasPassword                                     bool
+	Password                                        string
+	Random                                          io.Reader
 }
 
-var DefaultConfig = Config{
+var DefaultConfig = &Config{
 	KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
 	CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 	MACAlgorithm:     OidSHA1,
+	HasPassword:      true,
+	Password:         DefaultPassword,
+	Random:           rand.Reader,
+}
+
+func (d Config) Clone() *Config {
+	return &Config{
+		MACAlgorithm:     d.MACAlgorithm,
+		CertBagAlgorithm: d.CertBagAlgorithm,
+		KeyBagAlgorithm:  d.KeyBagAlgorithm,
+		HasPassword:      d.HasPassword,
+		Password:         d.Password,
+		Random:           d.Random,
+	}
 }
 
 // Encode produces pfxData containing one private key (privateKey), an
@@ -471,7 +489,12 @@ var DefaultConfig = Config{
 // LocalKeyId attribute set to the SHA-1 fingerprint of the end-entity
 // certificate.
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
-	return EncodeWithConfig(rand, privateKey, certificate, caCerts, password, DefaultConfig)
+	d := DefaultConfig.Clone()
+	d.Random = rand
+	d.HasPassword = true
+	d.Password = password
+
+	return EncodeWithConfig(privateKey, certificate, caCerts, d)
 }
 
 func check(prefix string, c *x509.Certificate) error {
@@ -506,11 +529,14 @@ func check(prefix string, c *x509.Certificate) error {
 //
 // EncodeWithConfig takes a Config with Algorithm specifications to use for
 // for securing the PFX.
-func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate,
-	password string, config Config) (pfxData []byte, err error) {
-	encodedPassword, err := bmpStringZeroTerminated(password)
-	if err != nil {
-		return nil, err
+func EncodeWithConfig(privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate,
+	config *Config) (pfxData []byte, err error) {
+	var encodedPassword []byte
+	if config.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(config.Password)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if err := check("Certificate", certificate); err != nil {
@@ -555,7 +581,7 @@ func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.
 	keyBag.Value.Class = 2
 	keyBag.Value.Tag = 0
 	keyBag.Value.IsCompound = true
-	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(rand, privateKey, encodedPassword, config.KeyBagAlgorithm); err != nil {
+	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(config.Random, privateKey, encodedPassword, config.KeyBagAlgorithm); err != nil {
 		return nil, err
 	}
 	keyBag.Attributes = append(keyBag.Attributes, localKeyIdAttr)
@@ -564,10 +590,10 @@ func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword, config.CertBagAlgorithm); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(config, certBags, encodedPassword); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil, config.CertBagAlgorithm); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(config, []safeBag{keyBag}, nil); err != nil {
 		return nil, err
 	}
 
@@ -579,7 +605,7 @@ func EncodeWithConfig(rand io.Reader, privateKey interface{}, certificate *x509.
 	// compute the MAC
 	pfx.MacData.Mac.Algorithm.Algorithm = config.MACAlgorithm
 	pfx.MacData.MacSalt = make([]byte, 8)
-	if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+	if _, err = config.Random.Read(pfx.MacData.MacSalt); err != nil {
 		return nil, err
 	}
 	pfx.MacData.Iterations = 1
@@ -659,7 +685,11 @@ type TrustStoreEntry struct {
 // EncodeTrustStoreEntries creates a single SafeContents that's encrypted
 // with RC2 and contains the certificates.
 func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
-	return EncodeTrustStoreEntriesWithConfig(rand, entries, password, DefaultConfig)
+	d := DefaultConfig.Clone()
+	d.HasPassword = true
+	d.Password = password
+	d.Random = rand
+	return EncodeTrustStoreEntriesWithConfig(entries, d)
 }
 
 // EncodeTrustStoreEntriesWithConfig produces pfxData containing any number of CA
@@ -683,10 +713,13 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 //
 // EncodeWithConfig takes a Config with Algorithm specifications to use for
 // for securing the PFX.
-func EncodeTrustStoreEntriesWithConfig(rand io.Reader, entries []TrustStoreEntry, password string, config Config) (pfxData []byte, err error) {
-	encodedPassword, err := bmpStringZeroTerminated(password)
-	if err != nil {
-		return nil, err
+func EncodeTrustStoreEntriesWithConfig(entries []TrustStoreEntry, config *Config) (pfxData []byte, err error) {
+	var encodedPassword []byte
+	if config.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(config.Password)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	for i, c := range entries {
@@ -755,7 +788,7 @@ func EncodeTrustStoreEntriesWithConfig(rand io.Reader, entries []TrustStoreEntry
 	// Construct an authenticated safe with one SafeContent.
 	// The SafeContents is encrypted and contains the cert bags.
 	var authenticatedSafe [1]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword, config.CertBagAlgorithm); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(config, certBags, encodedPassword); err != nil {
 		return nil, err
 	}
 
@@ -802,7 +835,7 @@ func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeB
 	return
 }
 
-func makeSafeContents(rand io.Reader, bags []safeBag, password []byte, algorithm asn1.ObjectIdentifier) (ci contentInfo, err error) {
+func makeSafeContents(config *Config, bags []safeBag, password []byte) (ci contentInfo, err error) {
 	var data []byte
 	if data, err = asn1.Marshal(bags); err != nil {
 		return
@@ -818,11 +851,11 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte, algorithm
 		}
 	} else {
 		randomSalt := make([]byte, 8)
-		if _, err = rand.Read(randomSalt); err != nil {
+		if _, err = config.Random.Read(randomSalt); err != nil {
 			return
 		}
 
-		algo := pkix.AlgorithmIdentifier{Algorithm: algorithm}
+		algo := pkix.AlgorithmIdentifier{Algorithm: config.CertBagAlgorithm}
 		if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
 			return
 		}
