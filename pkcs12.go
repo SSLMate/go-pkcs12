@@ -3,8 +3,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package pkcs12 implements some of PKCS#12 (also known as P12 or PFX).
-// It is intended for decoding DER-encoded P12/PFX files for use with the crypto/tls
+// Package pkcs12 implements some of PKCS#12 (also known as P12 or PFX).  It is
+// intended for decoding DER-encoded P12/PFX files for use with the crypto/tls
 // package, and for encoding P12/PFX files for use by legacy applications which
 // do not support newer formats.  Since PKCS#12 uses weak encryption
 // primitives, it SHOULD NOT be used for new applications.
@@ -15,6 +15,27 @@
 // This package is forked from golang.org/x/crypto/pkcs12, which is frozen.
 // The implementation is distilled from https://tools.ietf.org/html/rfc7292
 // and referenced documents.
+//
+// By definition, the Fingerprint is a hash of the public key bytes, hence one
+// can use the Fingerprint returned from reading a p12 file to match the key
+// with the certificate, as they will have the same hash.  This is important as
+// when a p12 file is loaded, it may have multiple keys and certificates, which
+// can be provided in any order.
+//
+// Before loading the proper cert with key to make a tls.Certificate, it is a good
+// idea to do something like the following:
+//
+//   ce := p12.CertEntries[0]  // After we have determined this is the needed cert
+//   for _, k := range p12.KeyEntries {
+//     if bytes.Match(k.Fingerprint, ce.Fingerprint) {
+//       t := tls.Certificate{
+//         Certificate: [][]byte{ce.Cert.Raw},
+//         Leaf:        ce.Cert,
+//         PrivateKey:  k.Key,
+//       }
+//     }
+//   }
+//
 package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
@@ -344,7 +365,7 @@ func (d P12) Clone() P12 {
 	return p12
 }
 
-// Decode extracts a certificate, a CA certificate chain, and private key from
+// Unmarshal extracts a certificate, a CA certificate chain, and private key from
 // pfxData, which must be a DER-encoded PKCS#12 file. This function assumes
 // that there is at least one certificate and only one private key in the
 // pfxData.  The first certificate is assumed to be the leaf certificate, and
@@ -448,7 +469,7 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 	conf.Password = password
 	conf.HasPassword = true
 	ts := TrustStore{}
-	err = DecodeTrustStoreWithConfig(pfxData, &ts, conf)
+	err = UnmarshalTrustStore(pfxData, &ts, conf)
 	if err != nil {
 		return
 	}
@@ -459,10 +480,10 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 	return
 }
 
-// DecodeTrustStore extracts the TrustStoreEntries from pfxData, which must be a DER-encoded
+// UnmarshalTrustStore extracts the TrustStoreEntries from pfxData, which must be a DER-encoded
 // PKCS#12 file containing exclusively certificates with attribute 2.16.840.1.113894.746875.1.1,
 // which is used by Java to designate a trust anchor.
-func DecodeTrustStoreWithConfig(pfxData []byte, ts *TrustStore, config *Config) (err error) {
+func UnmarshalTrustStore(pfxData []byte, ts *TrustStore, config *Config) (err error) {
 	var encodedPassword []byte
 	if config.HasPassword {
 		encodedPassword, err = bmpStringZeroTerminated(config.Password)
@@ -611,6 +632,13 @@ type Config struct {
 	SkipDecodeErrors                                bool
 }
 
+// Create a configuration block off the default and set the password
+func ConfigWithPassword(password string) *Config {
+	c := DefaultConfig.Clone()
+	c.Password = password
+	c.HasPassword = true
+	return c
+}
 func (d Config) Clone() *Config {
 	return &Config{
 		HasPassword:      d.HasPassword,
@@ -746,7 +774,7 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	}, d)
 }
 
-// Encode produces pfxData containing private keys (PrivateKeys),
+// Marshal produces pfxData containing private keys (PrivateKeys),
 // an entity certificates (CertEntries), and any number of CA certificates
 // included as CertEntries.
 //
@@ -763,14 +791,11 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 //
 // Example:
 //
-//   p := pkcs12.P12{
-//     Password:    "changeit",
-//     HasPassword: true,
-//     Config:      pkcs12.DefaultConfig,
-//   }
-//   p.PrivateKeys = append(p.PrivateKeys, myKey)
+//   p := pkcs12.P12{}
+//   p.KeyEntries = append(p.KeyEntries, pkcs12.KeyEntry{Key: myKey})
 //   p.CertEntries = append(p.CertEntries, pkcs12.CertEntry{Certificate: myCert})
-//   raw, err := p.Encode()
+//   derBytes, err := pkcs12.Marshal(&p12, pkcs12.ConfigWithPassword("mypass"))
+//
 func Marshal(p12 *P12, config *Config) (pfxData []byte, err error) {
 	var encodedPassword []byte
 	if config.HasPassword {
@@ -937,15 +962,15 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 	conf.Random = rand
 	conf.Password = password
 	conf.HasPassword = true
-	return EncodeTrustStoreWithConfig(&TrustStore{
+	return MarshalTrustStore(&TrustStore{
 		Entries:     entries,
 		HasPassword: true,
 	}, conf)
 }
 
-// Encode produces pfxData containing any number of CA certificates (entries)
-// to be trusted. The certificates will be marked with a special OID that allow
-// it to be used as a Java TrustStore in Java 1.8 and newer.
+// MarshalTrustStore produces pfxData containing any number of CA certificates
+// (entries) to be trusted. The certificates will be marked with a special OID
+// that allow it to be used as a Java TrustStore in Java 1.8 and newer.
 //
 // This is identical to [EncodeTrustStore], but also allows for setting specific
 // Friendly Names (Aliases) to be used per certificate, by specifying a slice
@@ -962,9 +987,9 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 // The rand argument is used to provide entropy for the encryption, and
 // can be set to [crypto/rand.Reader].
 //
-// EncodeWithConfig takes a Config with Algorithm specifications to use for
+// MarshalTrustStore takes a Config with Algorithm specifications to use for
 // for securing the PFX.
-func EncodeTrustStoreWithConfig(ts *TrustStore, config *Config) (pfxData []byte, err error) {
+func MarshalTrustStore(ts *TrustStore, config *Config) (pfxData []byte, err error) {
 	var encodedPassword []byte
 	if ts.HasPassword {
 		encodedPassword, err = bmpStringZeroTerminated(config.Password)
