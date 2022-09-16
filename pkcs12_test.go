@@ -287,12 +287,12 @@ func TestDecodeAES256(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		p := &P12{
-			Password:    "testme",
-			HasPassword: true,
-		}
+		c := DefaultConfig.Clone()
+		c.Password = "testme"
+		c.HasPassword = true
 
-		err = p.Decode(p12)
+		p := P12{}
+		err = Unmarshal(p12, &p, c)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -275,8 +275,11 @@ func Decode(pfxData []byte, password string) (privateKey interface{}, certificat
 // and subsequent certificates, if any, are assumed to comprise the CA
 // certificate chain.
 func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, err error) {
-	p12 := P12{Password: password, HasPassword: true, Config: &Config{}}
-	err = p12.Decode(pfxData)
+	conf := DefaultConfig.Clone()
+	conf.Password = password
+	conf.HasPassword = true
+	p12 := P12{}
+	err = Unmarshal(pfxData, &p12, conf)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("pkcs12: error decoding chain: %s", err)
 	}
@@ -295,11 +298,10 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 }
 
 type P12 struct {
-	CertEntries []CertEntry
-	KeyEntries  []KeyEntry
-	HasPassword bool
-	Password    string
-	Config      *Config
+	CertEntries                                     []CertEntry
+	KeyEntries                                      []KeyEntry
+	MACAlgorithm, CertBagAlgorithm, KeyBagAlgorithm asn1.ObjectIdentifier
+	HasPassword                                     bool
 }
 
 type CertEntry struct {
@@ -329,17 +331,15 @@ func (d KeyEntry) Clone() KeyEntry {
 
 func (d P12) Clone() P12 {
 	p12 := P12{
-		HasPassword: d.HasPassword,
-		Password:    d.Password,
+		MACAlgorithm:     d.MACAlgorithm,
+		CertBagAlgorithm: d.CertBagAlgorithm,
+		KeyBagAlgorithm:  d.KeyBagAlgorithm,
 	}
 	for _, e := range d.CertEntries {
 		p12.CertEntries = append(p12.CertEntries, e.Clone())
 	}
 	for _, e := range d.KeyEntries {
 		p12.KeyEntries = append(p12.KeyEntries, e.Clone())
-	}
-	if p12.Config != nil {
-		p12.Config = p12.Config.Clone()
 	}
 	return p12
 }
@@ -356,12 +356,12 @@ func (d P12) Clone() P12 {
 // - HasPassword bool is updated to show if an empty string password was used
 // or no password when an empty string is provided.
 //
-// - Config is replaced with the actual settings of the encryption methods used
-// in the PKCS#12
-func (p12 *P12) Decode(pfxData []byte) (err error) {
+// - The P12 output will be filled with the actual settings of the encryption
+// methods used in the PKCS#12
+func Unmarshal(pfxData []byte, p12 *P12, config *Config) (err error) {
 	var encodedPassword []byte
-	if p12.HasPassword {
-		encodedPassword, err = bmpStringZeroTerminated(p12.Password)
+	if config.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(config.Password)
 		if err != nil {
 			return err
 		}
@@ -369,21 +369,15 @@ func (p12 *P12) Decode(pfxData []byte) (err error) {
 		encodedPassword, _ = bmpStringZeroTerminated("")
 	}
 
-	if p12.Config == nil {
-		p12.Config = &Config{}
-	} else {
-		p12.Config = &Config{SkipDecodeErrors: p12.Config.SkipDecodeErrors}
-	}
-
 	bags, encodedPassword, algorithm, macAlgorithm, err := getSafeContents(pfxData, encodedPassword, 2)
 	if err != nil {
 		return err
 	}
-	p12.Config.CertBagAlgorithm = algorithm
-	p12.Config.MACAlgorithm = macAlgorithm
+	p12.CertBagAlgorithm = algorithm
+	p12.MACAlgorithm = macAlgorithm
 
 	// Update the HasPassword property
-	p12.HasPassword = encodedPassword == nil
+	p12.HasPassword = encodedPassword != nil
 
 	for _, bag := range bags {
 		switch {
@@ -414,12 +408,12 @@ func (p12 *P12) Decode(pfxData []byte) (err error) {
 		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
 			PrivateKey, keyAlgorithm, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPassword)
 			if err != nil {
-				if p12.Config.SkipDecodeErrors {
+				if config.SkipDecodeErrors {
 					continue
 				}
 				return err
 			}
-			p12.Config.KeyBagAlgorithm = keyAlgorithm
+			p12.KeyBagAlgorithm = keyAlgorithm
 
 			k := KeyEntry{Key: PrivateKey}
 			if h, err := hashKey(PrivateKey); err == nil {
@@ -441,21 +435,20 @@ func (p12 *P12) Decode(pfxData []byte) (err error) {
 
 // TrustStore represents a Java TrustStore in P12 format.
 type TrustStore struct {
-	Entries     []TrustStoreEntry
-	HasPassword bool
-	Password    string
-	Config      *Config
+	Entries                        []TrustStoreEntry
+	MACAlgorithm, CertBagAlgorithm asn1.ObjectIdentifier
+	HasPassword                    bool
 }
 
 // DecodeTrustStore extracts the certificates from pfxData, which must be a DER-encoded
 // PKCS#12 file containing exclusively certificates with attribute 2.16.840.1.113894.746875.1.1,
 // which is used by Java to designate a trust anchor.
 func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificate, err error) {
-	ts := TrustStore{
-		Password:    password,
-		HasPassword: true,
-	}
-	err = ts.Decode(pfxData)
+	conf := DefaultConfig.Clone()
+	conf.Password = password
+	conf.HasPassword = true
+	ts := TrustStore{}
+	err = DecodeTrustStoreWithConfig(pfxData, &ts, conf)
 	if err != nil {
 		return
 	}
@@ -469,23 +462,22 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 // DecodeTrustStore extracts the TrustStoreEntries from pfxData, which must be a DER-encoded
 // PKCS#12 file containing exclusively certificates with attribute 2.16.840.1.113894.746875.1.1,
 // which is used by Java to designate a trust anchor.
-func (ts *TrustStore) Decode(pfxData []byte) (err error) {
+func DecodeTrustStoreWithConfig(pfxData []byte, ts *TrustStore, config *Config) (err error) {
 	var encodedPassword []byte
-	if ts.HasPassword {
-		encodedPassword, err = bmpStringZeroTerminated(ts.Password)
+	if config.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(config.Password)
 		if err != nil {
 			return err
 		}
 	}
 
-	ts.Config = &Config{}
-
 	bags, encodedPassword, algorithm, macAlgorithm, err := getSafeContents(pfxData, encodedPassword, 1)
 	if err != nil {
 		return err
 	}
-	ts.Config.CertBagAlgorithm = algorithm
-	ts.Config.MACAlgorithm = macAlgorithm
+	ts.HasPassword = encodedPassword != nil
+	ts.CertBagAlgorithm = algorithm
+	ts.MACAlgorithm = macAlgorithm
 
 	for _, bag := range bags {
 		switch {
@@ -612,9 +604,23 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 // Config defines the MAC and Cipher algorithms to use for writing out a
 // PKCS#12 file.
 type Config struct {
+	HasPassword                                     bool
+	Password                                        string
 	MACAlgorithm, CertBagAlgorithm, KeyBagAlgorithm asn1.ObjectIdentifier
 	Random                                          io.Reader
 	SkipDecodeErrors                                bool
+}
+
+func (d Config) Clone() *Config {
+	return &Config{
+		HasPassword:      d.HasPassword,
+		Password:         d.Password,
+		MACAlgorithm:     d.MACAlgorithm,
+		CertBagAlgorithm: d.CertBagAlgorithm,
+		KeyBagAlgorithm:  d.KeyBagAlgorithm,
+		Random:           d.Random,
+		SkipDecodeErrors: d.SkipDecodeErrors,
+	}
 }
 
 func (c *CertEntry) SetFriendlyName(name string, err error) {
@@ -699,15 +705,8 @@ var DefaultConfig = &Config{
 	CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 	MACAlgorithm:     OidSHA1,
 	Random:           rand.Reader,
-}
-
-func (d Config) Clone() *Config {
-	return &Config{
-		MACAlgorithm:     d.MACAlgorithm,
-		CertBagAlgorithm: d.CertBagAlgorithm,
-		KeyBagAlgorithm:  d.KeyBagAlgorithm,
-		Random:           d.Random,
-	}
+	HasPassword:      true,
+	Password:         "changeit",
 }
 
 // Encode produces pfxData containing one private key (privateKey), an
@@ -731,6 +730,8 @@ func (d Config) Clone() *Config {
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
 	d := DefaultConfig.Clone()
 	d.Random = rand
+	d.Password = password
+	d.HasPassword = true
 
 	entries := []CertEntry{CertEntry{
 		Cert: certificate,
@@ -739,13 +740,10 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 		entries = append(entries, CertEntry{Cert: c})
 	}
 
-	return P12{
+	return Marshal(&P12{
 		KeyEntries:  []KeyEntry{KeyEntry{Key: privateKey}},
 		CertEntries: entries,
-		Password:    password,
-		HasPassword: true,
-		Config:      d,
-	}.Encode()
+	}, d)
 }
 
 // Encode produces pfxData containing private keys (PrivateKeys),
@@ -773,10 +771,10 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 //   p.PrivateKeys = append(p.PrivateKeys, myKey)
 //   p.CertEntries = append(p.CertEntries, pkcs12.CertEntry{Certificate: myCert})
 //   raw, err := p.Encode()
-func (p12 P12) Encode() (pfxData []byte, err error) {
+func Marshal(p12 *P12, config *Config) (pfxData []byte, err error) {
 	var encodedPassword []byte
-	if p12.HasPassword {
-		encodedPassword, err = bmpStringZeroTerminated(p12.Password)
+	if config.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(config.Password)
 		if err != nil {
 			return nil, err
 		}
@@ -791,11 +789,12 @@ func (p12 P12) Encode() (pfxData []byte, err error) {
 		}
 	}
 
-	if p12.Config == nil {
-		p12.Config = DefaultConfig
+	if config == nil {
+		return nil, errors.New("pkcs12: no config provided for encoding")
 	}
-	if p12.Config.Random == nil {
-		p12.Config.Random = rand.Reader
+	if config.Random == nil {
+		// Make sure we have a sensible value if none is specified
+		config.Random = rand.Reader
 	}
 
 	pfx := pfxPdu{
@@ -821,8 +820,8 @@ func (p12 P12) Encode() (pfxData []byte, err error) {
 				IsCompound: true,
 			}}
 
-		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(p12.Config.Random, k.Key,
-			encodedPassword, p12.Config.KeyBagAlgorithm); err != nil {
+		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(config.Random, k.Key,
+			encodedPassword, config.KeyBagAlgorithm); err != nil {
 			return nil, err
 		}
 
@@ -839,10 +838,10 @@ func (p12 P12) Encode() (pfxData []byte, err error) {
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(p12.Config, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(config, certBags, encodedPassword); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents(p12.Config, keyBags, nil); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(config, keyBags, nil); err != nil {
 		return nil, err
 	}
 
@@ -852,9 +851,9 @@ func (p12 P12) Encode() (pfxData []byte, err error) {
 	}
 
 	// compute the MAC
-	pfx.MacData.Mac.Algorithm.Algorithm = p12.Config.MACAlgorithm
+	pfx.MacData.Mac.Algorithm.Algorithm = config.MACAlgorithm
 	pfx.MacData.MacSalt = make([]byte, 8)
-	if _, err = p12.Config.Random.Read(pfx.MacData.MacSalt); err != nil {
+	if _, err = config.Random.Read(pfx.MacData.MacSalt); err != nil {
 		return nil, err
 	}
 	pfx.MacData.Iterations = 1
@@ -934,14 +933,14 @@ type TrustStoreEntry struct {
 // EncodeTrustStoreEntries creates a single SafeContents that's encrypted
 // with RC2 and contains the certificates.
 func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
-	c := DefaultConfig.Clone()
-	c.Random = rand
-	return TrustStore{
+	conf := DefaultConfig.Clone()
+	conf.Random = rand
+	conf.Password = password
+	conf.HasPassword = true
+	return EncodeTrustStoreWithConfig(&TrustStore{
 		Entries:     entries,
 		HasPassword: true,
-		Password:    password,
-		Config:      c,
-	}.Encode()
+	}, conf)
 }
 
 // Encode produces pfxData containing any number of CA certificates (entries)
@@ -965,10 +964,10 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 //
 // EncodeWithConfig takes a Config with Algorithm specifications to use for
 // for securing the PFX.
-func (ts TrustStore) Encode() (pfxData []byte, err error) {
+func EncodeTrustStoreWithConfig(ts *TrustStore, config *Config) (pfxData []byte, err error) {
 	var encodedPassword []byte
 	if ts.HasPassword {
-		encodedPassword, err = bmpStringZeroTerminated(ts.Password)
+		encodedPassword, err = bmpStringZeroTerminated(config.Password)
 		if err != nil {
 			return nil, err
 		}
@@ -980,11 +979,12 @@ func (ts TrustStore) Encode() (pfxData []byte, err error) {
 		}
 	}
 
-	if ts.Config == nil {
-		ts.Config = DefaultConfig
+	if config == nil {
+		return nil, errors.New("pkcs12: no config provided for encoding")
 	}
-	if ts.Config.Random == nil {
-		ts.Config.Random = rand.Reader
+	if config.Random == nil {
+		// Make sure we have a sensible value if none is specified
+		config.Random = rand.Reader
 	}
 
 	pfx := pfxPdu{
@@ -1048,7 +1048,7 @@ func (ts TrustStore) Encode() (pfxData []byte, err error) {
 	// Construct an authenticated safe with one SafeContent.
 	// The SafeContents is encrypted and contains the cert bags.
 	var authenticatedSafe [1]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(ts.Config, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(config, certBags, encodedPassword); err != nil {
 		return nil, err
 	}
 
@@ -1058,7 +1058,7 @@ func (ts TrustStore) Encode() (pfxData []byte, err error) {
 	}
 
 	// compute the MAC
-	pfx.MacData.Mac.Algorithm.Algorithm = ts.Config.MACAlgorithm
+	pfx.MacData.Mac.Algorithm.Algorithm = config.MACAlgorithm
 	pfx.MacData.MacSalt = make([]byte, 8)
 	if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
 		return nil, err
