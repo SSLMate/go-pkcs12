@@ -9,6 +9,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"hash"
@@ -29,6 +30,8 @@ type digestInfo struct {
 var (
 	OidSHA1   = asn1.ObjectIdentifier([]int{1, 3, 14, 3, 2, 26})
 	OidSHA256 = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 2, 1})
+	OidSHA384 = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 2, 2})
+	OidSHA512 = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 2, 3})
 )
 
 func verifyMac(macData *macData, message, password []byte) error {
@@ -41,6 +44,12 @@ func verifyMac(macData *macData, message, password []byte) error {
 	case macData.Mac.Algorithm.Algorithm.Equal(OidSHA256):
 		hFn = sha256.New
 		key = pbkdf(sha256Sum, 32, 64, macData.MacSalt, password, macData.Iterations, 3, 32)
+	case macData.Mac.Algorithm.Algorithm.Equal(OidSHA384):
+		hFn = sha512.New384
+		key = pbkdf(sha256Sum, 48, 64, macData.MacSalt, password, macData.Iterations, 3, 32)
+	case macData.Mac.Algorithm.Algorithm.Equal(OidSHA512):
+		hFn = sha512.New
+		key = pbkdf(sha256Sum, 64, 64, macData.MacSalt, password, macData.Iterations, 3, 32)
 	default:
 		return NotImplementedError("unknown digest algorithm: " + macData.Mac.Algorithm.Algorithm.String())
 	}
