@@ -712,6 +712,13 @@ func (c *KeyEntry) SetFingerPrint() (err error) {
 }
 
 func (c *CertEntry) SetFingerPrint() (err error) {
+	if c.Cert.PublicKey == nil {
+		newCert, err := x509.ParseCertificate(c.Cert.Raw)
+		if err != nil {
+			return err
+		}
+		c.Cert = newCert
+	}
 	pkcs12Attributes, err := localKeyID(c.Cert.PublicKey)
 	if err != nil {
 		return err
@@ -769,7 +776,9 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	}
 
 	return Marshal(&P12{
-		KeyEntries:  []KeyEntry{KeyEntry{Key: privateKey}},
+		KeyEntries: []KeyEntry{KeyEntry{
+			Key: privateKey,
+		}},
 		CertEntries: entries,
 	}, d)
 }
@@ -844,6 +853,10 @@ func Marshal(p12 *P12, config *Config) (pfxData []byte, err error) {
 				Tag:        0,
 				IsCompound: true,
 			}}
+
+		if err := k.SetFingerPrint(); err != nil {
+			return nil, err
+		}
 
 		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(config.Random, k.Key,
 			encodedPassword, config.KeyBagAlgorithm); err != nil {

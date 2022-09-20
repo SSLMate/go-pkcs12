@@ -37,16 +37,33 @@ func hashKey(key interface{}) (fingerprint []byte, err error) {
 	switch k := key.(type) {
 	case *ecdsa.PrivateKey:
 		fingerprint, err = hashPublicKey(k.Public())
+	case ecdsa.PrivateKey:
+		fingerprint, err = hashPublicKey(k.Public())
+
 	case *rsa.PrivateKey:
 		fingerprint, err = hashPublicKey(k.Public())
+	case rsa.PrivateKey:
+		fingerprint, err = hashPublicKey(k.Public())
+
 	case *ed25519.PrivateKey:
 		fingerprint, err = hashPublicKey(k.Public())
+	case ed25519.PrivateKey:
+		fingerprint, err = hashPublicKey(k.Public())
+
 	case *ecdsa.PublicKey:
 		fingerprint, err = hashPublicKey(k)
+	case ecdsa.PublicKey:
+		fingerprint, err = hashPublicKey(&k)
+
 	case *rsa.PublicKey:
 		fingerprint, err = hashPublicKey(k)
+	case rsa.PublicKey:
+		fingerprint, err = hashPublicKey(&k)
+
 	case *ed25519.PublicKey:
 		fingerprint, err = hashPublicKey(k)
+	case ed25519.PublicKey:
+		fingerprint, err = hashPublicKey(&k)
 	default:
 		return nil, fmt.Errorf("pkcs12: unable to hash key format: %T", key)
 	}
