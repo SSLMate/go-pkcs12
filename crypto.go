@@ -93,6 +93,9 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 		}
 		utf8Password := []byte(originalPassword)
 		return pbes2CipherFor(algorithm, utf8Password)
+	case algorithm.Algorithm.Equal(oidDataContentType):
+		// When there is no encryption
+		return nil, nil, nil
 	default:
 		return nil, nil, NotImplementedError("algorithm " + algorithm.Algorithm.String() + " is not supported")
 	}
@@ -119,7 +122,20 @@ func pbDecrypterFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 		return nil, 0, err
 	}
 
+	if block == nil {
+		return noCipher{}, 1, nil
+	}
+
 	return cipher.NewCBCDecrypter(block, iv), block.BlockSize(), nil
+}
+
+type noCipher struct{}
+
+func (n noCipher) BlockSize() int {
+	return 1
+}
+func (n noCipher) CryptBlocks(dst, src []byte) {
+	copy(dst, src)
 }
 
 func pbDecrypt(info decryptable, password []byte) (decrypted []byte, err error) {
@@ -236,6 +252,10 @@ func pbEncrypterFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 	block, iv, err := pbeCipherFor(algorithm, password)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	if block == nil {
+		return noCipher{}, 1, nil
 	}
 
 	return cipher.NewCBCEncrypter(block, iv), block.BlockSize(), nil
