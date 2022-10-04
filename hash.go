@@ -7,31 +7,11 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/asn1"
 	"errors"
 	"fmt"
 
 	"golang.org/x/crypto/ssh"
 )
-
-func localKeyID(key interface{}) ([]pkcs12Attribute, error) {
-	certFingerprint, err := hashKey(key)
-	if err != nil {
-		return nil, err
-	}
-	pkcs12Attributes := []pkcs12Attribute{pkcs12Attribute{
-		Id: oidLocalKeyID,
-		Value: asn1.RawValue{
-			Class:      0,
-			Tag:        17,
-			IsCompound: true,
-		},
-	}}
-	if pkcs12Attributes[0].Value.Bytes, err = asn1.Marshal(certFingerprint[:]); err != nil {
-		return nil, err
-	}
-	return pkcs12Attributes, nil
-}
 
 func hashKey(key interface{}) (fingerprint []byte, err error) {
 	switch k := key.(type) {

@@ -297,9 +297,10 @@ func Decode(pfxData []byte, password string) (privateKey interface{}, certificat
 // certificate chain.
 func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, err error) {
 	p12 := P12{
-		Password:         []byte(password),
-		KeyBagAlgorithm:  pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd3KeyTripleDESCBC},
-		CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd40BitRC2CBC},
+		Password:         password,
+		HasPassword:      true,
+		KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
+		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 		MACAlgorithm:     OidSHA1,
 		Random:           rand.Reader,
 	}
@@ -322,23 +323,27 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 }
 
 type P12 struct {
-	SkipDecodeErrors                  bool
-	CertEntries                       []CertEntry
-	KeyEntries                        []KeyEntry
-	MACAlgorithm                      asn1.ObjectIdentifier
-	CertBagAlgorithm, KeyBagAlgorithm pkix.AlgorithmIdentifier
-	Password                          []byte
-	Random                            io.Reader
+	SkipDecodeErrors                                bool
+	CertEntries                                     []CertEntry
+	KeyEntries                                      []KeyEntry
+	MACAlgorithm, CertBagAlgorithm, KeyBagAlgorithm asn1.ObjectIdentifier
+	Password                                        string
+	HasPassword                                     bool
+	Random                                          io.Reader
+	CustomKeyEncryption                             func(k KeyEntry) (Password string, HasPassword bool, KeyBagAlgorithm asn1.ObjectIdentifier)
 }
 
 type CertEntry struct {
-	Cert        *x509.Certificate
-	Fingerprint []byte
-	Attributes  []pkcs12Attribute
+	Cert               *x509.Certificate
+	KeyID, Fingerprint []byte
+	FriendlyName       string
+	Attributes         []pkcs12Attribute
 }
 type KeyEntry struct {
-	Key         interface{}
-	Fingerprint []byte
+	Key                interface{}
+	KeyID, Fingerprint []byte
+	FriendlyName       string
+	Attributes         []pkcs12Attribute
 }
 
 func (d CertEntry) Clone() CertEntry {
@@ -372,13 +377,11 @@ func (d KeyEntry) Clone() KeyEntry {
 //   methods used in the PKCS#12
 func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 	var encodedPassword []byte
-	if p12.Password != nil {
-		encodedPassword, err = bmpStringZeroTerminated(string(p12.Password))
+	if p12.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(p12.Password)
 		if err != nil {
 			return err
 		}
-	} else {
-		encodedPassword, _ = bmpStringZeroTerminated("")
 	}
 
 	bags, encodedPassword, algorithm, macAlgorithm, err := getSafeContents(pfxData, encodedPassword, 2)
@@ -390,7 +393,8 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 
 	// Update the Password property
 	if encodedPassword == nil {
-		p12.Password = nil
+		p12.Password = ""
+		p12.HasPassword = false
 	}
 
 	for _, bag := range bags {
@@ -408,10 +412,29 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 				err = errors.New("pkcs12: expected exactly one certificate in the certBag")
 				return err
 			}
+
 			c := CertEntry{
 				Cert:       certs[0],
 				Attributes: bag.Attributes,
 			}
+
+			if friendlyName, ok := bag.getAttribute(oidFriendlyName); ok {
+				var rawval asn1.RawValue
+
+				if trailing, err := asn1.Unmarshal(friendlyName, &rawval); err == nil && len(trailing) == 0 {
+					friendlyName = rawval.Bytes
+				}
+
+				fn, err := decodeBMPString(friendlyName)
+				if err == nil {
+					c.FriendlyName = fn
+				}
+			}
+
+			if keyID, ok := bag.getAttribute(oidLocalKeyID); ok {
+				c.KeyID = keyID
+			}
+
 			if h, err := hashKey(certs[0].PublicKey); err == nil {
 				c.Fingerprint = h
 			} else {
@@ -420,6 +443,41 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 			p12.CertEntries = append(p12.CertEntries, c)
 
 		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
+			fmt.Printf("bag= %+v\n", bag)
+
+			k := KeyEntry{
+				Attributes: bag.Attributes,
+			}
+
+			if friendlyName, ok := bag.getAttribute(oidFriendlyName); ok {
+				var rawval asn1.RawValue
+
+				if trailing, err := asn1.Unmarshal(friendlyName, &rawval); err == nil && len(trailing) == 0 {
+					friendlyName = rawval.Bytes
+				}
+
+				fn, err := decodeBMPString(friendlyName)
+				if err == nil {
+					k.FriendlyName = fn
+				}
+			}
+
+			if keyID, ok := bag.getAttribute(oidLocalKeyID); ok {
+				k.KeyID = keyID
+			}
+
+			if p12.CustomKeyEncryption != nil {
+				Password, HasPassword, _ := p12.CustomKeyEncryption(k)
+				if HasPassword {
+					encodedPassword, err = bmpStringZeroTerminated(Password)
+					if err != nil {
+						return err
+					}
+				} else {
+					encodedPassword = nil
+				}
+			}
+
 			PrivateKey, keyAlgorithm, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPassword)
 			if err != nil {
 				if p12.SkipDecodeErrors {
@@ -428,8 +486,8 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 				return err
 			}
 			p12.KeyBagAlgorithm = keyAlgorithm
+			k.Key = PrivateKey
 
-			k := KeyEntry{Key: PrivateKey}
 			if h, err := hashKey(PrivateKey); err == nil {
 				k.Fingerprint = h
 			} else {
@@ -449,19 +507,30 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 
 // TrustStore represents a Java TrustStore in P12 format.
 type TrustStore struct {
-	Random           io.Reader
 	Entries          []TrustStoreEntry
 	MACAlgorithm     asn1.ObjectIdentifier
-	CertBagAlgorithm pkix.AlgorithmIdentifier
-	Password         []byte
+	CertBagAlgorithm asn1.ObjectIdentifier
+	Random           io.Reader
+	Password         string
+	HasPassword      bool
 }
 
-func NewTrustStoreWithPassword(password string) TrustStore {
-	return TrustStore{
+// TrustStoreEntry represents an entry in a Java TrustStore.
+type TrustStoreEntry struct {
+	Cert         *x509.Certificate
+	FriendlyName string
+	Fingerprint  []byte
+	KeyID        []byte
+	Attributes   []pkcs12Attribute
+}
+
+func NewTrustStoreWithPassword(password string) *TrustStore {
+	return &TrustStore{
 		Random:           rand.Reader,
-		CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd40BitRC2CBC},
+		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 		MACAlgorithm:     OidSHA1,
-		Password:         []byte(password),
+		Password:         password,
+		HasPassword:      true,
 	}
 }
 
@@ -470,9 +539,9 @@ func NewTrustStoreWithPassword(password string) TrustStore {
 // which is used by Java to designate a trust anchor.
 func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificate, err error) {
 	ts := TrustStore{
-		Password: []byte(password),
-		//KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC, //TODO
-		CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd40BitRC2CBC},
+		Password:         password,
+		HasPassword:      true,
+		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 		MACAlgorithm:     OidSHA1,
 	}
 	err = UnmarshalTrustStore(pfxData, &ts)
@@ -491,8 +560,8 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 // which is used by Java to designate a trust anchor.
 func UnmarshalTrustStore(pfxData []byte, ts *TrustStore) (err error) {
 	var encodedPassword []byte
-	if ts.Password != nil {
-		encodedPassword, err = bmpStringZeroTerminated(string(ts.Password))
+	if ts.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(ts.Password)
 		if err != nil {
 			return err
 		}
@@ -506,8 +575,9 @@ func UnmarshalTrustStore(pfxData []byte, ts *TrustStore) (err error) {
 	ts.MACAlgorithm = macAlgorithm
 
 	// Update the Password property
-	if encodedPassword == nil {
-		ts.Password = nil
+	if encodedPassword == nil || macAlgorithm == nil {
+		ts.Password = ""
+		ts.HasPassword = false
 	}
 
 	for _, bag := range bags {
@@ -531,7 +601,13 @@ func UnmarshalTrustStore(pfxData []byte, ts *TrustStore) (err error) {
 			}
 
 			entry := TrustStoreEntry{
-				Cert: parsedCerts[0],
+				Cert:       parsedCerts[0],
+				Attributes: bag.Attributes,
+			}
+
+			entry.Fingerprint, err = hashKey(parsedCerts[0].PublicKey)
+			if err != nil {
+				return fmt.Errorf("pkcs12: could not hash cert for fingerprint: %s", err)
 			}
 
 			if friendlyName, ok := bag.getAttribute(oidFriendlyName); ok {
@@ -547,6 +623,10 @@ func UnmarshalTrustStore(pfxData []byte, ts *TrustStore) (err error) {
 				}
 			}
 
+			if keyID, ok := bag.getAttribute(oidLocalKeyID); ok {
+				entry.KeyID = keyID
+			}
+
 			ts.Entries = append(ts.Entries, entry)
 
 		default:
@@ -558,7 +638,7 @@ func UnmarshalTrustStore(pfxData []byte, ts *TrustStore) (err error) {
 }
 
 func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBag, updatedPassword []byte,
-	algorithm pkix.AlgorithmIdentifier, macAlgorithm asn1.ObjectIdentifier, err error) {
+	algorithm, macAlgorithm asn1.ObjectIdentifier, err error) {
 	pfx := new(pfxPdu)
 	if unmarshalErr := unmarshal(p12Data, pfx); unmarshalErr != nil {
 		err = errors.New("pkcs12: error reading P12 data: " + unmarshalErr.Error())
@@ -581,7 +661,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 	}
 
 	if len(pfx.MacData.Mac.Algorithm.Algorithm) == 0 {
-		if !(len(password) == 2 && password[0] == 0 && password[1] == 0) {
+		if len(password) != 0 && !(len(password) == 2 && password[0] == 0 && password[1] == 0) {
 			err = errors.New("pkcs12: no MAC in data")
 			return
 		}
@@ -617,7 +697,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 			if err = unmarshal(ci.Content.Bytes, &data); err != nil {
 				return
 			}
-			algorithm = pkix.AlgorithmIdentifier{Algorithm: oidDataContentType}
+			algorithm = oidDataContentType
 		case ci.ContentType.Equal(oidEncryptedDataContentType):
 			var encryptedData encryptedData
 			if err = unmarshal(ci.Content.Bytes, &encryptedData); err != nil {
@@ -630,7 +710,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 			if data, err = pbDecrypt(encryptedData.EncryptedContentInfo, password); err != nil {
 				return
 			}
-			algorithm = encryptedData.EncryptedContentInfo.Algorithm()
+			algorithm = encryptedData.EncryptedContentInfo.Algorithm().Algorithm
 		default:
 			err = NotImplementedError("only data and encryptedData content types are supported in authenticated safe")
 			return
@@ -649,8 +729,8 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 // Create a new P12 with defaults
 func NewP12() P12 {
 	return P12{
-		KeyBagAlgorithm:  pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd3KeyTripleDESCBC},
-		CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd40BitRC2CBC},
+		KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
+		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 		MACAlgorithm:     OidSHA1,
 		Random:           rand.Reader,
 	}
@@ -659,15 +739,16 @@ func NewP12() P12 {
 // Create a new P12 with defaults and set the password
 func NewP12WithPassword(password string) P12 {
 	return P12{
-		KeyBagAlgorithm:  pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd3KeyTripleDESCBC},
-		CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd40BitRC2CBC},
+		KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
+		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 		MACAlgorithm:     OidSHA1,
 		Random:           rand.Reader,
-		Password:         []byte(password),
+		Password:         password,
+		HasPassword:      true,
 	}
 }
 
-func (c *CertEntry) SetFriendlyName(name string, err error) {
+/*func (c *CertEntry) setFriendlyName(name string, err error) {
 	bName, err := bmpString(name)
 	if err != nil {
 		return
@@ -716,7 +797,7 @@ builtAttributes:
 		pkcs12Attributes = append(pkcs12Attributes, attr)
 	}
 	c.Attributes = pkcs12Attributes
-}
+}*/
 
 func (c *KeyEntry) SetFingerPrint() (err error) {
 	h, err := hashKey(c.Key)
@@ -735,19 +816,11 @@ func (c *CertEntry) SetFingerPrint() (err error) {
 		}
 		c.Cert = newCert
 	}
-	pkcs12Attributes, err := localKeyID(c.Cert.PublicKey)
+	h, err := hashKey(c.Cert.PublicKey)
 	if err != nil {
 		return err
 	}
-	c.Fingerprint = pkcs12Attributes[0].Value.Bytes
-
-	// Loop over Attributes adding the entries
-	for _, attr := range c.Attributes {
-		if !attr.Id.Equal(oidLocalKeyID) {
-			pkcs12Attributes = append(pkcs12Attributes, attr)
-		}
-	}
-	c.Attributes = pkcs12Attributes
+	c.Fingerprint = h
 	return nil
 }
 
@@ -782,11 +855,12 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 		KeyEntries: []KeyEntry{KeyEntry{
 			Key: privateKey,
 		}},
-		KeyBagAlgorithm:  pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd3KeyTripleDESCBC},
-		CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd40BitRC2CBC},
+		KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
+		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 		MACAlgorithm:     OidSHA1,
 		Random:           rand,
-		Password:         []byte(password),
+		Password:         password,
+		HasPassword:      true,
 		CertEntries:      entries,
 	})
 }
@@ -818,18 +892,29 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 //   p := &pkcs12.P12{
 //     Random:           rand.Reader,
 //     Password:         []byte("myPassword"),
-//     KeyBagAlgorithm:  pkix.AlgorithmIdentifier{Algorithm: pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC},
-//     CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC},
+//     KeyBagAlgorithm:  pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC,
+//     CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
 //     MACAlgorithm:     pkcs12.OidSHA1,
 //   })
 //
 func Marshal(p12 *P12) (pfxData []byte, err error) {
 	var encodedPassword []byte
-	if p12.Password != nil {
+	if p12.HasPassword {
 		encodedPassword, err = bmpStringZeroTerminated(string(p12.Password))
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		if len(p12.Password) > 0 {
+			return nil, errors.New("pkcs12: HasPassword is false, but a password was set")
+		}
+	}
+
+	if p12.MACAlgorithm == nil || p12.CertBagAlgorithm == nil {
+		if len(p12.Password) > 0 && !(len(p12.Password) == 2 && p12.Password[0] == 0 && p12.Password[1] == 0) {
+			return nil, errors.New("pkcs12: MAC and Cert Algorithms must be provided when a password is defined")
+		}
+		encodedPassword = nil
 	}
 
 	for i, c := range p12.CertEntries {
@@ -852,10 +937,14 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 
 	var certBags []safeBag
 	for _, ce := range p12.CertEntries {
-		certBag, err := makeCertBag(ce.Cert.Raw, ce.Attributes)
+		certBag, err := makeCertBag(ce.Cert.Raw)
 		if err != nil {
 			return nil, err
 		}
+		certBag.Attributes = ce.Attributes
+		setKeyID(certBag, ce.Cert, []byte{})
+		setFriendlyName(certBag, ce.FriendlyName)
+
 		certBags = append(certBags, *certBag)
 	}
 
@@ -873,17 +962,39 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 			return nil, err
 		}
 
+		if len(k.KeyID) == 0 {
+			k.KeyID = k.Fingerprint
+		}
+
+		keyBagAlgorithm := p12.KeyBagAlgorithm
+		if p12.CustomKeyEncryption != nil {
+			Password, HasPassword, KeyBagAlgorithm := p12.CustomKeyEncryption(k)
+			if HasPassword {
+				encodedPassword, err = bmpStringZeroTerminated(Password)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				encodedPassword = nil
+			}
+			keyBagAlgorithm = KeyBagAlgorithm
+		}
+
+		keyBag.Attributes = k.Attributes
+		setKeyID(keyBag, k.Key, k.KeyID)
+		setFriendlyName(keyBag, k.FriendlyName)
+
 		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(p12.Random, k.Key,
-			encodedPassword, p12.KeyBagAlgorithm); err != nil {
+			encodedPassword, keyBagAlgorithm); err != nil {
 			return nil, err
 		}
 
-		pkcs12Attributes, err := localKeyID(k.Key)
+		//, err := localKeyID(k.Key)
 		if err != nil {
 			return nil, err
 		}
 
-		keyBag.Attributes = append(keyBag.Attributes, pkcs12Attributes...)
+		//keyBag.Attributes = append(keyBag.Attributes, pkcs12Attributes...)
 		keyBags = append(keyBags, *keyBag)
 	}
 
@@ -960,12 +1071,6 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 	return EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password)
 }
 
-// TrustStoreEntry represents an entry in a Java TrustStore.
-type TrustStoreEntry struct {
-	Cert         *x509.Certificate
-	FriendlyName string
-}
-
 // EncodeTrustStoreEntries produces pfxData containing any number of CA
 // certificates (entries) to be trusted. The certificates will be marked with a
 // special OID that allow it to be used as a Java TrustStore in Java 1.8 and newer.
@@ -991,8 +1096,9 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 	return MarshalTrustStore(&TrustStore{
 		Entries:          entries,
 		Random:           rand,
-		Password:         []byte(password),
-		CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: OidPBEWithSHAAnd40BitRC2CBC},
+		Password:         password,
+		HasPassword:      true,
+		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
 		MACAlgorithm:     OidSHA1,
 	})
 }
@@ -1021,7 +1127,7 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 //   ts := &pkcs12.TrustStore{
 //     Random:           rand.Reader,
 //     Password:         []byte("myPassword"),
-//     CertBagAlgorithm: pkix.AlgorithmIdentifier{Algorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC},
+//     CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
 //     MACAlgorithm:     pkcs12.OidSHA1,
 //   })
 //
@@ -1029,19 +1135,25 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 // to use for for securing the PFX.
 func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 	var encodedPassword []byte
-	if ts.Password != nil {
-		encodedPassword, err = bmpStringZeroTerminated(string(ts.Password))
+	if ts.HasPassword {
+		encodedPassword, err = bmpStringZeroTerminated(ts.Password)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		if len(ts.Password) > 0 {
+			return nil, errors.New("pkcs12: HasPassword is false, but a password was set")
+		}
 	}
-	if ts.MACAlgorithm == nil || ts.CertBagAlgorithm.Algorithm == nil {
+
+	if ts.MACAlgorithm == nil || ts.CertBagAlgorithm == nil {
 		if len(ts.Password) > 0 && !(len(ts.Password) == 2 && ts.Password[0] == 0 && ts.Password[1] == 0) {
 			return nil, errors.New("pkcs12: MAC and Cert Algorithms must be provided when a password is defined")
 		}
 		encodedPassword = nil
 	}
 
+	// Quick sanity check on the certificates
 	for i, c := range ts.Entries {
 		if err := checkCert(fmt.Sprintf("TrustStoreEntry #%d", i), c.Cert); err != nil {
 			return pfxData, err
@@ -1057,58 +1169,19 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 		Version: 3,
 	}
 
-	var certAttributes []pkcs12Attribute
-
-	extKeyUsageOidBytes, err := asn1.Marshal(oidAnyExtendedKeyUsage)
-	if err != nil {
-		return nil, err
-	}
-
-	// the OidJavaTrustStore attribute contains the EKUs for which
-	// this trust anchor will be valid
-	certAttributes = append(certAttributes, pkcs12Attribute{
-		Id: oidJavaTrustStore,
-		Value: asn1.RawValue{
-			Class:      0,
-			Tag:        17,
-			IsCompound: true,
-			Bytes:      extKeyUsageOidBytes,
-		},
-	})
-
 	var certBags []safeBag
 	for _, entry := range ts.Entries {
 
-		bmpFriendlyName, err := bmpString(entry.FriendlyName)
+		certBag, err := makeCertBag(entry.Cert.Raw)
 		if err != nil {
 			return nil, err
 		}
 
-		encodedFriendlyName, err := asn1.Marshal(asn1.RawValue{
-			Class:      0,
-			Tag:        30,
-			IsCompound: false,
-			Bytes:      bmpFriendlyName,
-		})
+		certBag.Attributes = entry.Attributes
+		setKeyID(certBag, entry.Cert, []byte{})
+		setFriendlyName(certBag, entry.FriendlyName)
+		setJavaTrustStore(certBag)
 
-		if err != nil {
-			return nil, err
-		}
-
-		friendlyName := pkcs12Attribute{
-			Id: oidFriendlyName,
-			Value: asn1.RawValue{
-				Class:      0,
-				Tag:        17,
-				IsCompound: true,
-				Bytes:      encodedFriendlyName,
-			},
-		}
-
-		certBag, err := makeCertBag(entry.Cert.Raw, append(certAttributes, friendlyName))
-		if err != nil {
-			return nil, err
-		}
 		certBags = append(certBags, *certBag)
 	}
 
@@ -1151,7 +1224,7 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 	return
 }
 
-func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeBag, err error) {
+func makeCertBag(certBytes []byte) (certBag *safeBag, err error) {
 	certBag = new(safeBag)
 	certBag.Id = oidCertBag
 	certBag.Value.Class = 2
@@ -1160,11 +1233,10 @@ func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeB
 	if certBag.Value.Bytes, err = encodeCertBag(certBytes); err != nil {
 		return nil, err
 	}
-	certBag.Attributes = attributes
 	return
 }
 
-func makeSafeContents(random io.Reader, algorithm pkix.AlgorithmIdentifier, bags []safeBag, password []byte) (ci contentInfo, err error) {
+func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []safeBag, password []byte) (ci contentInfo, err error) {
 	var data []byte
 	if data, err = asn1.Marshal(bags); err != nil {
 		return
@@ -1184,7 +1256,7 @@ func makeSafeContents(random io.Reader, algorithm pkix.AlgorithmIdentifier, bags
 			return
 		}
 
-		algo := pkix.AlgorithmIdentifier{Algorithm: algorithm.Algorithm, Parameters: algorithm.Parameters}
+		algo := pkix.AlgorithmIdentifier{Algorithm: algorithm}
 		if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
 			return
 		}
@@ -1206,4 +1278,98 @@ func makeSafeContents(random io.Reader, algorithm pkix.AlgorithmIdentifier, bags
 		}
 	}
 	return
+}
+
+func setKeyID(bag *safeBag, key interface{}, keyid []byte) error {
+	Fingerprint, err := hashKey(key)
+	if err != nil {
+		return err
+	}
+	keyIDAttribute := pkcs12Attribute{
+		Id: oidLocalKeyID,
+		Value: asn1.RawValue{
+			Class:      0,
+			Tag:        17,
+			IsCompound: true,
+		},
+	}
+	if len(keyid) == 0 {
+		if keyIDAttribute.Value.Bytes, err = asn1.Marshal(Fingerprint[:]); err != nil {
+			return err
+		}
+	} else {
+		keyIDAttribute.Value.Bytes = keyid
+	}
+	attrs := []pkcs12Attribute{keyIDAttribute}
+	for _, attr := range bag.Attributes {
+		if !attr.Id.Equal(oidLocalKeyID) {
+			attrs = append(attrs, attr)
+		}
+	}
+	bag.Attributes = attrs
+	return nil
+}
+
+func setFriendlyName(bag *safeBag, FriendlyName string) error {
+	bmpFriendlyName, err := bmpString(FriendlyName)
+	if err != nil {
+		return err
+	}
+
+	encodedFriendlyName, err := asn1.Marshal(asn1.RawValue{
+		Class:      0,
+		Tag:        30,
+		IsCompound: false,
+		Bytes:      bmpFriendlyName,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	friendlyName := pkcs12Attribute{
+		Id: oidFriendlyName,
+		Value: asn1.RawValue{
+			Class:      0,
+			Tag:        17,
+			IsCompound: true,
+			Bytes:      encodedFriendlyName,
+		},
+	}
+	attrs := []pkcs12Attribute{friendlyName}
+	for _, attr := range bag.Attributes {
+		if !attr.Id.Equal(oidFriendlyName) {
+			attrs = append(attrs, attr)
+		}
+	}
+	bag.Attributes = attrs
+	return nil
+}
+
+func setJavaTrustStore(bag *safeBag) error {
+	extKeyUsageOidBytes, err := asn1.Marshal(oidAnyExtendedKeyUsage)
+	if err != nil {
+		return err
+	}
+
+	// the OidJavaTrustStore attribute contains the EKUs for which
+	// this trust anchor will be valid
+	javaTrustStoreAttribute := pkcs12Attribute{
+		Id: oidJavaTrustStore,
+		Value: asn1.RawValue{
+			Class:      0,
+			Tag:        17,
+			IsCompound: true,
+			Bytes:      extKeyUsageOidBytes,
+		},
+	}
+
+	attrs := []pkcs12Attribute{javaTrustStoreAttribute}
+	for _, attr := range bag.Attributes {
+		if !attr.Id.Equal(oidJavaTrustStore) {
+			attrs = append(attrs, attr)
+		}
+	}
+	bag.Attributes = attrs
+	return nil
 }

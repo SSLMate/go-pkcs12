@@ -25,7 +25,7 @@ type certBag struct {
 	Data []byte `asn1:"tag:0,explicit"`
 }
 
-func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{}, algorithm pkix.AlgorithmIdentifier, err error) {
+func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{}, algorithm asn1.ObjectIdentifier, err error) {
 	pkinfo := new(encryptedPrivateKeyInfo)
 	if err = unmarshal(asn1Data, pkinfo); err != nil {
 		err = errors.New("pkcs12: error decoding PKCS#8 shrouded key bag: " + err.Error())
@@ -50,10 +50,11 @@ func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{
 		return
 	}
 
-	return privateKey, pkinfo.AlgorithmIdentifier, nil
+	algorithm = pkinfo.AlgorithmIdentifier.Algorithm
+	return
 }
 
-func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password []byte, algorithm pkix.AlgorithmIdentifier) (asn1Data []byte, err error) {
+func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password []byte, algorithm asn1.ObjectIdentifier) (asn1Data []byte, err error) {
 	var pkData []byte
 	if pkData, err = x509.MarshalPKCS8PrivateKey(privateKey); err != nil {
 		return nil, errors.New("pkcs12: error encoding PKCS#8 private key: " + err.Error())
@@ -69,7 +70,7 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 	}
 
 	var pkinfo encryptedPrivateKeyInfo
-	pkinfo.AlgorithmIdentifier = algorithm
+	pkinfo.AlgorithmIdentifier = pkix.AlgorithmIdentifier{Algorithm: algorithm}
 	pkinfo.AlgorithmIdentifier.Parameters.FullBytes = paramBytes
 
 	if err = pbEncrypt(&pkinfo, pkData, password); err != nil {
