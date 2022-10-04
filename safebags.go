@@ -7,7 +7,6 @@ package pkcs12
 
 import (
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"fmt"
@@ -106,7 +105,7 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 	}
 
 	var pkinfo encryptedPrivateKeyInfo
-	pkinfo.AlgorithmIdentifier = pkix.AlgorithmIdentifier{Algorithm: algorithm}
+	pkinfo.AlgorithmIdentifier.Algorithm = algorithm
 	pkinfo.AlgorithmIdentifier.Parameters.FullBytes = paramBytes
 
 	if err = pbEncrypt(&pkinfo, pkData, password); err != nil {
