@@ -443,7 +443,6 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 			p12.CertEntries = append(p12.CertEntries, c)
 
 		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
-			fmt.Printf("bag= %+v\n", bag)
 
 			k := KeyEntry{
 				Attributes: bag.Attributes,
