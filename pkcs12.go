@@ -59,7 +59,7 @@ import (
 const DefaultPassword = "changeit"
 
 var (
-	oidDataContentType          = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 1})
+	OidDataContentType          = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 1})
 	oidEncryptedDataContentType = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 6})
 
 	oidFriendlyName     = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 20})
@@ -322,6 +322,10 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 	return p12.KeyEntries[0].Key, p12.CertEntries[0].Cert, CACerts, err
 }
 
+// When doing key level custom encryption, one can provide a call back function
+// to handle individual keys.  If no function is provided the settings
+// Password, HasPassword, and KeyBagAlgorithm will be used for all the key
+// bags.
 type P12 struct {
 	SkipDecodeErrors                                bool
 	CertEntries                                     []CertEntry
@@ -649,7 +653,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 		return
 	}
 
-	if !pfx.AuthSafe.ContentType.Equal(oidDataContentType) {
+	if !pfx.AuthSafe.ContentType.Equal(OidDataContentType) {
 		err = NotImplementedError("only DataContentType oid is implemented")
 		return
 	}
@@ -675,8 +679,8 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 		if err != nil {
 			return
 		}
-		macAlgorithm = pfx.MacData.Mac.Algorithm.Algorithm
 	}
+	macAlgorithm = pfx.MacData.Mac.Algorithm.Algorithm
 
 	var authenticatedSafe []contentInfo
 	if err = unmarshal(pfx.AuthSafe.Content.Bytes, &authenticatedSafe); err != nil {
@@ -692,11 +696,11 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 		var data []byte
 
 		switch {
-		case ci.ContentType.Equal(oidDataContentType):
+		case ci.ContentType.Equal(OidDataContentType):
 			if err = unmarshal(ci.Content.Bytes, &data); err != nil {
 				return
 			}
-			algorithm = oidDataContentType
+			algorithm = OidDataContentType
 		case ci.ContentType.Equal(oidEncryptedDataContentType):
 			var encryptedData encryptedData
 			if err = unmarshal(ci.Content.Bytes, &encryptedData); err != nil {
@@ -726,7 +730,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 }
 
 // Create a new P12 with defaults
-func NewP12() P12 {
+func New() P12 {
 	return P12{
 		KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
 		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
@@ -736,7 +740,7 @@ func NewP12() P12 {
 }
 
 // Create a new P12 with defaults and set the password
-func NewP12WithPassword(password string) P12 {
+func NewWithPassword(password string) P12 {
 	return P12{
 		KeyBagAlgorithm:  OidPBEWithSHAAnd3KeyTripleDESCBC,
 		CertBagAlgorithm: OidPBEWithSHAAnd40BitRC2CBC,
@@ -1030,7 +1034,7 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 		}
 	}
 
-	pfx.AuthSafe.ContentType = oidDataContentType
+	pfx.AuthSafe.ContentType = OidDataContentType
 	pfx.AuthSafe.Content.Class = 2
 	pfx.AuthSafe.Content.Tag = 0
 	pfx.AuthSafe.Content.IsCompound = true
@@ -1213,7 +1217,7 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 		}
 	}
 
-	pfx.AuthSafe.ContentType = oidDataContentType
+	pfx.AuthSafe.ContentType = OidDataContentType
 	pfx.AuthSafe.Content.Class = 2
 	pfx.AuthSafe.Content.Tag = 0
 	pfx.AuthSafe.Content.IsCompound = true
@@ -1246,7 +1250,7 @@ func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []
 	}
 
 	if password == nil {
-		ci.ContentType = oidDataContentType
+		ci.ContentType = OidDataContentType
 		ci.Content.Class = 2
 		ci.Content.Tag = 0
 		ci.Content.IsCompound = true
@@ -1266,7 +1270,7 @@ func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []
 
 		var encryptedData encryptedData
 		encryptedData.Version = 0
-		encryptedData.EncryptedContentInfo.ContentType = oidDataContentType
+		encryptedData.EncryptedContentInfo.ContentType = OidDataContentType
 		encryptedData.EncryptedContentInfo.ContentEncryptionAlgorithm = algo
 		if err = pbEncrypt(&encryptedData.EncryptedContentInfo, data, password); err != nil {
 			return

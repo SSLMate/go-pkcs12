@@ -93,7 +93,7 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 		}
 		utf8Password := []byte(originalPassword)
 		return pbes2CipherFor(algorithm, utf8Password)
-	case algorithm.Algorithm.Equal(oidDataContentType):
+	case algorithm.Algorithm.Equal(OidDataContentType):
 		// When there is no encryption
 		return nil, nil, nil
 	default:

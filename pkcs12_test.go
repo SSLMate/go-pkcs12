@@ -287,7 +287,7 @@ func TestDecodeAES256(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		p := NewP12WithPassword("testme")
+		p := NewWithPassword("testme")
 
 		err = Unmarshal(p12, &p)
 		if err != nil {
