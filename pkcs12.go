@@ -334,7 +334,8 @@ type P12 struct {
 	Password                                        string
 	HasPassword                                     bool
 	Random                                          io.Reader
-	CustomKeyEncryption                             func(k KeyEntry) (Password string, HasPassword bool, KeyBagAlgorithm asn1.ObjectIdentifier)
+	CustomKeyEncrypt                                func(*KeyEntry) ([]byte, error)
+	CustomKeyDecrypt                                func(*KeyEntry, []byte) error
 }
 
 type CertEntry struct {
@@ -469,29 +470,25 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 				k.KeyID = keyID
 			}
 
-			if p12.CustomKeyEncryption != nil {
-				Password, HasPassword, _ := p12.CustomKeyEncryption(k)
-				if HasPassword {
-					encodedPassword, err = bmpStringZeroTerminated(Password)
-					if err != nil {
-						return err
-					}
-				} else {
-					encodedPassword = nil
+			if p12.CustomKeyDecrypt != nil {
+				err = p12.CustomKeyDecrypt(&k, bag.Value.Bytes)
+				if err != nil {
+					return err
 				}
-			}
-
-			PrivateKey, keyAlgorithm, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPassword)
-			if err != nil {
-				if p12.SkipDecodeErrors {
+				if k.Key == nil {
 					continue
 				}
-				return err
+			} else {
+				k.Key, p12.KeyBagAlgorithm, err = decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPassword)
+				if err != nil {
+					if p12.SkipDecodeErrors {
+						continue
+					}
+					return err
+				}
 			}
-			p12.KeyBagAlgorithm = keyAlgorithm
-			k.Key = PrivateKey
 
-			if h, err := hashKey(PrivateKey); err == nil {
+			if h, err := hashKey(k.Key); err == nil {
 				k.Fingerprint = h
 			} else {
 				return fmt.Errorf("pkcs12: could not hash key for fingerprint: %s", err)
@@ -969,31 +966,24 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 			k.KeyID = k.Fingerprint
 		}
 
-		keyBagAlgorithm := p12.KeyBagAlgorithm
-		if p12.CustomKeyEncryption != nil {
-			Password, HasPassword, KeyBagAlgorithm := p12.CustomKeyEncryption(k)
-			if KeyBagAlgorithm == nil {
+		if p12.CustomKeyEncrypt != nil {
+			keyBag.Value.Bytes, err = p12.CustomKeyEncrypt(&k)
+			if err != nil {
+				return nil, err
+			}
+			if len(keyBag.Value.Bytes) == 0 {
 				// Skip trying to decode this key
 				continue
 			}
-			if HasPassword {
-				encodedPassword, err = bmpStringZeroTerminated(Password)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				encodedPassword = nil
+		} else {
+			keyBag.Attributes = k.Attributes
+			setKeyID(keyBag, k.Key, k.KeyID)
+			setFriendlyName(keyBag, k.FriendlyName)
+
+			if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(p12.Random, k.Key,
+				encodedPassword, p12.KeyBagAlgorithm); err != nil {
+				return nil, err
 			}
-			keyBagAlgorithm = KeyBagAlgorithm
-		}
-
-		keyBag.Attributes = k.Attributes
-		setKeyID(keyBag, k.Key, k.KeyID)
-		setFriendlyName(keyBag, k.FriendlyName)
-
-		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(p12.Random, k.Key,
-			encodedPassword, keyBagAlgorithm); err != nil {
-			return nil, err
 		}
 
 		//, err := localKeyID(k.Key)
