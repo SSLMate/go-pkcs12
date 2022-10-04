@@ -968,6 +968,10 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 		keyBagAlgorithm := p12.KeyBagAlgorithm
 		if p12.CustomKeyEncryption != nil {
 			Password, HasPassword, KeyBagAlgorithm := p12.CustomKeyEncryption(k)
+			if KeyBagAlgorithm == nil {
+				// Skip trying to decode this key
+				continue
+			}
 			if HasPassword {
 				encodedPassword, err = bmpStringZeroTerminated(Password)
 				if err != nil {
