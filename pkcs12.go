@@ -890,7 +890,8 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 //
 //   p := &pkcs12.P12{
 //     Random:           rand.Reader,
-//     Password:         []byte("myPassword"),
+//     Password:         "myPassword",
+//     HasPassword:      true,
 //     KeyBagAlgorithm:  pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC,
 //     CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
 //     MACAlgorithm:     pkcs12.OidSHA1,
@@ -1111,7 +1112,8 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 //
 //   ts := &pkcs12.TrustStore{
 //     Random:           rand.Reader,
-//     Password:         []byte("myPassword"),
+//     Password:         "myPassword",
+//     HasPassword:      true,
 //     CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
 //     MACAlgorithm:     pkcs12.OidSHA1,
 //   })
