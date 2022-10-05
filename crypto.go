@@ -33,6 +33,8 @@ var (
 	oidPBKDF2                        = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 12})
 	OidHmacWithSHA1                  = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 7})
 	OidHmacWithSHA256                = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 9})
+	OidAES128CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 2})
+	OidAES192CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 22})
 	OidAES256CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 42})
 )
 
@@ -295,12 +297,26 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 		prf = sha1.New
 	}
 
-	key := pbkdf2.Key(password, kdfParams.Salt.Bytes, kdfParams.Iterations, 32, prf)
 	iv := params.EncryptionScheme.Parameters.Bytes
 
 	var block cipher.Block
 	switch {
+	case params.EncryptionScheme.Algorithm.Equal(OidAES128CBC):
+		key := pbkdf2.Key(password, kdfParams.Salt.Bytes, kdfParams.Iterations, 16, prf)
+		b, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, nil, err
+		}
+		block = b
+	case params.EncryptionScheme.Algorithm.Equal(OidAES192CBC):
+		key := pbkdf2.Key(password, kdfParams.Salt.Bytes, kdfParams.Iterations, 24, prf)
+		b, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, nil, err
+		}
+		block = b
 	case params.EncryptionScheme.Algorithm.Equal(OidAES256CBC):
+		key := pbkdf2.Key(password, kdfParams.Salt.Bytes, kdfParams.Iterations, 32, prf)
 		b, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, nil, err
