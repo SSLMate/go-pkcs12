@@ -339,30 +339,33 @@ type P12 struct {
 }
 
 type CertEntry struct {
-	Cert               *x509.Certificate
-	KeyID, Fingerprint []byte
-	FriendlyName       string
-	Attributes         []pkcs12Attribute
+	Cert         *x509.Certificate
+	KeyID        []byte
+	FriendlyName string
+	Attributes   []pkcs12Attribute
 }
 type KeyEntry struct {
-	Key                interface{}
-	KeyID, Fingerprint []byte
-	FriendlyName       string
-	Attributes         []pkcs12Attribute
+	Key          interface{}
+	KeyID        []byte
+	FriendlyName string
+	Attributes   []pkcs12Attribute
 }
 
 func (d CertEntry) Clone() CertEntry {
 	return CertEntry{
-		Cert:        d.Cert,
-		Fingerprint: d.Fingerprint,
-		Attributes:  append([]pkcs12Attribute{}, d.Attributes...),
+		Cert:         d.Cert,
+		KeyID:        d.KeyID,
+		FriendlyName: d.FriendlyName,
+		Attributes:   append([]pkcs12Attribute{}, d.Attributes...),
 	}
 }
 
 func (d KeyEntry) Clone() KeyEntry {
 	return KeyEntry{
-		Key:         d.Key,
-		Fingerprint: d.Fingerprint,
+		Key:          d.Key,
+		KeyID:        d.KeyID,
+		FriendlyName: d.FriendlyName,
+		Attributes:   append([]pkcs12Attribute{}, d.Attributes...),
 	}
 }
 
@@ -438,10 +441,8 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 
 			if keyID, ok := bag.getAttribute(oidLocalKeyID); ok {
 				c.KeyID = keyID
-			}
-
-			if h, err := hashKey(certs[0].PublicKey); err == nil {
-				c.Fingerprint = h
+			} else if h, err := hashKey(certs[0].PublicKey); err == nil {
+				c.KeyID = h
 			} else {
 				return fmt.Errorf("pkcs12: could not hash cert for fingerprint: %s", err)
 			}
@@ -468,6 +469,10 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 
 			if keyID, ok := bag.getAttribute(oidLocalKeyID); ok {
 				k.KeyID = keyID
+			} else if h, err := hashKey(k.Key); err == nil {
+				k.KeyID = h
+			} else {
+				return fmt.Errorf("pkcs12: could not hash key for fingerprint: %s", err)
 			}
 
 			if p12.CustomKeyDecrypt != nil {
@@ -486,12 +491,6 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 					}
 					return err
 				}
-			}
-
-			if h, err := hashKey(k.Key); err == nil {
-				k.Fingerprint = h
-			} else {
-				return fmt.Errorf("pkcs12: could not hash key for fingerprint: %s", err)
 			}
 
 			p12.KeyEntries = append(p12.KeyEntries, k)
@@ -797,7 +796,7 @@ builtAttributes:
 		pkcs12Attributes = append(pkcs12Attributes, attr)
 	}
 	c.Attributes = pkcs12Attributes
-}*/
+}
 
 func (c *KeyEntry) SetFingerPrint() (err error) {
 	h, err := hashKey(c.Key)
@@ -822,7 +821,7 @@ func (c *CertEntry) SetFingerPrint() (err error) {
 	}
 	c.Fingerprint = h
 	return nil
-}
+}*/
 
 // Encode produces pfxData containing one private key (privateKey), an
 // end-entity certificate (certificate), and any number of CA certificates
@@ -921,9 +920,6 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 		if err := checkCert(fmt.Sprintf("CA certificate #%d", i), c.Cert); err != nil {
 			return pfxData, err
 		}
-		if err := p12.CertEntries[i].SetFingerPrint(); err != nil {
-			return nil, err
-		}
 	}
 
 	if p12.Random == nil {
@@ -942,7 +938,7 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 			return nil, err
 		}
 		certBag.Attributes = ce.Attributes
-		setKeyID(certBag, ce.Cert, []byte{})
+		setKeyID(certBag, ce.Cert)
 		setFriendlyName(certBag, ce.FriendlyName)
 
 		certBags = append(certBags, *certBag)
@@ -958,13 +954,9 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 				IsCompound: true,
 			}}
 
-		if err := k.SetFingerPrint(); err != nil {
-			return nil, err
-		}
-
-		if len(k.KeyID) == 0 {
-			k.KeyID = k.Fingerprint
-		}
+		keyBag.Attributes = k.Attributes
+		setKeyID(keyBag, k.Key)
+		setFriendlyName(keyBag, k.FriendlyName)
 
 		if p12.CustomKeyEncrypt != nil {
 			keyBag.Value.Bytes, err = p12.CustomKeyEncrypt(&k)
@@ -976,10 +968,6 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 				continue
 			}
 		} else {
-			keyBag.Attributes = k.Attributes
-			setKeyID(keyBag, k.Key, k.KeyID)
-			setFriendlyName(keyBag, k.FriendlyName)
-
 			if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(p12.Random, k.Key,
 				encodedPassword, p12.KeyBagAlgorithm); err != nil {
 				return nil, err
@@ -1175,7 +1163,7 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 		}
 
 		certBag.Attributes = entry.Attributes
-		setKeyID(certBag, entry.Cert, []byte{})
+		setKeyID(certBag, entry.Cert)
 		setFriendlyName(certBag, entry.FriendlyName)
 		setJavaTrustStore(certBag)
 
@@ -1277,7 +1265,7 @@ func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []
 	return
 }
 
-func setKeyID(bag *safeBag, key interface{}, keyid []byte) error {
+func setKeyID(bag *safeBag, key interface{}) error {
 	Fingerprint, err := hashKey(key)
 	if err != nil {
 		return err
@@ -1290,12 +1278,8 @@ func setKeyID(bag *safeBag, key interface{}, keyid []byte) error {
 			IsCompound: true,
 		},
 	}
-	if len(keyid) == 0 {
-		if keyIDAttribute.Value.Bytes, err = asn1.Marshal(Fingerprint[:]); err != nil {
-			return err
-		}
-	} else {
-		keyIDAttribute.Value.Bytes = keyid
+	if keyIDAttribute.Value.Bytes, err = asn1.Marshal(Fingerprint[:]); err != nil {
+		return err
 	}
 	attrs := []pkcs12Attribute{keyIDAttribute}
 	for _, attr := range bag.Attributes {

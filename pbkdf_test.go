@@ -10,7 +10,7 @@ import (
 )
 
 func TestThatPBKDFWorksCorrectlyForLongKeys(t *testing.T) {
-	cipherInfo := shaWithTripleDESCBC{}
+	cipherInfo := shaWith3KeyTripleDESCBC{}
 
 	salt := []byte("\xff\xff\xff\xff\xff\xff\xff\xff")
 	password, _ := bmpStringZeroTerminated("sesame")

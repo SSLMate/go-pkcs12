@@ -294,10 +294,9 @@ func TestDecodeAES256(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if !bytes.Equal(p.KeyEntries[0].Fingerprint, p.CertEntries[0].Fingerprint) ||
-			len(p.CertEntries[0].Fingerprint) < 32 {
+		if !bytes.Equal(p.KeyEntries[0].KeyID, p.CertEntries[0].KeyID) {
 			t.Errorf("error while matching fingerprints %+v != %+v %d",
-				p.KeyEntries[0].Fingerprint, p.CertEntries[0].Fingerprint, len(p.CertEntries[0].Fingerprint))
+				p.KeyEntries[0].KeyID, p.CertEntries[0].KeyID, len(p.CertEntries[0].KeyID))
 		}
 
 		priv := p.KeyEntries[0].Key

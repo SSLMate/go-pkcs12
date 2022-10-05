@@ -102,10 +102,10 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 	}
 
 	for _, cert := range p.CertEntries {
-		fmt.Printf("Cert fingerprint: %0x\n", cert.Fingerprint)
+		fmt.Printf("Cert fingerprint: %0x\n", cert.KeyID)
 	}
 	for _, key := range p.KeyEntries {
-		fmt.Printf("Key fingerprint : %0x\n", key.Fingerprint)
+		fmt.Printf("Key fingerprint : %0x\n", key.KeyID)
 	}
 
 	// Create a P12 to marshal the new p12 into
@@ -120,7 +120,9 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 
 	newP12.CustomKeyEncrypt = func(k *pkcs12.KeyEntry) (b []byte, err error) {
 		fmt.Println("encrypting key...")
-		b, err = pkcs12.EncodePkcs8ShroudedKeyBagWithPassword(rand.Reader, k.Key, "key1pass", pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC)
+		// Encrypting with a key different than the pkcs12
+		b, err = pkcs12.EncodePkcs8ShroudedKeyBagWithPassword(rand.Reader, k.Key,
+			"key1pass", pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC)
 		return
 	}
 
@@ -132,11 +134,11 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 
 	fmt.Printf("%02x", out[:20])
 	// Output:
-	// decrypting key...
-	// Cert fingerprint: 880ac2e3092abce0f61326f91c5cf892e1b7627f47ef4f9f90a6d79051ee81db
-	// Key fingerprint : 880ac2e3092abce0f61326f91c5cf892e1b7627f47ef4f9f90a6d79051ee81db
-	// encrypting key...
-	// 30820f4c02010330820f1806092a864886f70d01
+	//decrypting key...
+	//Cert fingerprint: 041458e9b47ed494a2767e88f1de703ffd12fa27fee7
+	//Key fingerprint : 041458e9b47ed494a2767e88f1de703ffd12fa27fee7
+	//encrypting key...
+	//30820f9002010330820f5c06092a864886f70d01
 }
 
 func Example_MarshalAndUnmarshal() {
@@ -227,10 +229,10 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 	}
 
 	for _, cert := range p.CertEntries {
-		fmt.Printf("Cert fingerprint: %0x\n", cert.Fingerprint)
+		fmt.Printf("Cert ID: %0x\n", cert.KeyID)
 	}
 	for _, key := range p.KeyEntries {
-		fmt.Printf("Key fingerprint : %0x\n", key.Fingerprint)
+		fmt.Printf("Key ID : %0x\n", key.KeyID)
 	}
 
 	// Create a P12 to marshal the new p12 into
@@ -238,6 +240,9 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 
 	for _, entry := range p.CertEntries {
 		newP12.CertEntries = append(newP12.CertEntries, pkcs12.CertEntry{Cert: entry.Cert})
+	}
+	for _, entry := range p.KeyEntries {
+		newP12.KeyEntries = append(newP12.KeyEntries, pkcs12.KeyEntry{Key: entry.Key})
 	}
 
 	var out []byte
@@ -248,7 +253,7 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 
 	fmt.Printf("%02x", out[:20])
 	// Output:
-	// Cert fingerprint: 880ac2e3092abce0f61326f91c5cf892e1b7627f47ef4f9f90a6d79051ee81db
-	// Key fingerprint : 880ac2e3092abce0f61326f91c5cf892e1b7627f47ef4f9f90a6d79051ee81db
-	// 308205c10201033082058d06092a864886f70d01
+	// Cert ID: 041458e9b47ed494a2767e88f1de703ffd12fa27fee7
+	// Key ID : 041458e9b47ed494a2767e88f1de703ffd12fa27fee7
+	// 30820f9002010330820f5c06092a864886f70d01
 }
