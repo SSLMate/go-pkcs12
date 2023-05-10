@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -403,7 +404,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 	}
 
 	if len(authenticatedSafe) != expectedItems {
-		return nil, nil, NotImplementedError("expected exactly two items in the authenticated safe")
+		return nil, nil, NotImplementedError(fmt.Sprintf("expected exactly %d items in the authenticated safe", expectedItems))
 	}
 
 	for _, ci := range authenticatedSafe {
