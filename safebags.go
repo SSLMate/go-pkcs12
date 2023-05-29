@@ -146,6 +146,7 @@ func encodePBES2Params(salt []byte, rand io.Reader) (paramBytes []byte, err erro
 	}
 
 	encScheme.Algorithm = OidAES256CBC
+	encScheme.Parameters.Tag = asn1.TagOctetString
 	encScheme.Parameters.Bytes = iv
 
 	if paramBytes, err = asn1.Marshal(pbes2Params{Kdf: kdf, EncryptionScheme: encScheme}); err != nil {
