@@ -25,17 +25,16 @@
 // Before loading the proper cert with key to make a tls.Certificate, it is a good
 // idea to do something like the following:
 //
-//   ce := p12.CertEntries[0]  // After we have determined this is the needed cert
-//   for _, k := range p12.KeyEntries {
-//     if bytes.Match(k.Fingerprint, ce.Fingerprint) {
-//       t := tls.Certificate{
-//         Certificate: [][]byte{ce.Cert.Raw},
-//         Leaf:        ce.Cert,
-//         PrivateKey:  k.Key,
-//       }
-//     }
-//   }
-//
+//	ce := p12.CertEntries[0]  // After we have determined this is the needed cert
+//	for _, k := range p12.KeyEntries {
+//	  if bytes.Match(k.Fingerprint, ce.Fingerprint) {
+//	    t := tls.Certificate{
+//	      Certificate: [][]byte{ce.Cert.Raw},
+//	      Leaf:        ce.Cert,
+//	      PrivateKey:  k.Key,
+//	    }
+//	  }
+//	}
 package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
@@ -378,11 +377,11 @@ func (d KeyEntry) Clone() KeyEntry {
 //
 // Note:
 //
-// - Password []byte is updated to show the password used in the file (if different
-//   than given)
+//   - Password []byte is updated to show the password used in the file (if different
+//     than given)
 //
-// - The P12 output will be filled with the actual settings of the encryption
-//   methods used in the PKCS#12
+//   - The P12 output will be filled with the actual settings of the encryption
+//     methods used in the PKCS#12
 func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 	var encodedPassword []byte
 	if p12.HasPassword {
@@ -886,22 +885,21 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 //
 // Example usage:
 //
-//   p := pkcs12.NewP12WithPassword("mypass")
-//   p.KeyEntries = append(p.KeyEntries, pkcs12.KeyEntry{Key: myKey})
-//   p.CertEntries = append(p.CertEntries, pkcs12.CertEntry{Certificate: myCert})
-//   derBytes, err := pkcs12.Marshal(p12)
+//	p := pkcs12.NewP12WithPassword("mypass")
+//	p.KeyEntries = append(p.KeyEntries, pkcs12.KeyEntry{Key: myKey})
+//	p.CertEntries = append(p.CertEntries, pkcs12.CertEntry{Certificate: myCert})
+//	derBytes, err := pkcs12.Marshal(p12)
 //
 // Example definition of a P12 with custom algorithms:
 //
-//   p := &pkcs12.P12{
-//     Random:           rand.Reader,
-//     Password:         "myPassword",
-//     HasPassword:      true,
-//     KeyBagAlgorithm:  pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC,
-//     CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
-//     MACAlgorithm:     pkcs12.OidSHA1,
-//   })
-//
+//	p := &pkcs12.P12{
+//	  Random:           rand.Reader,
+//	  Password:         "myPassword",
+//	  HasPassword:      true,
+//	  KeyBagAlgorithm:  pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC,
+//	  CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
+//	  MACAlgorithm:     pkcs12.OidSHA1,
+//	})
 func Marshal(p12 *P12) (pfxData []byte, err error) {
 	var encodedPassword []byte
 	if p12.HasPassword {
@@ -1115,13 +1113,13 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 //
 // Example definition of a TrustStore:
 //
-//   ts := &pkcs12.TrustStore{
-//     Random:           rand.Reader,
-//     Password:         "myPassword",
-//     HasPassword:      true,
-//     CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
-//     MACAlgorithm:     pkcs12.OidSHA1,
-//   })
+//	ts := &pkcs12.TrustStore{
+//	  Random:           rand.Reader,
+//	  Password:         "myPassword",
+//	  HasPassword:      true,
+//	  CertBagAlgorithm: pkcs12.OidPBEWithSHAAnd40BitRC2CBC,
+//	  MACAlgorithm:     pkcs12.OidSHA1,
+//	})
 //
 // MarshalTrustStore takes a TrustStore structure with Algorithm specifications
 // to use for for securing the PFX.

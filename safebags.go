@@ -7,11 +7,11 @@ package pkcs12
 
 import (
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
-	"crypto/x509/pkix"
 )
 
 var (
@@ -154,7 +154,6 @@ func encodePBES2Params(salt []byte, rand io.Reader) (paramBytes []byte, err erro
 	}
 	return
 }
-
 
 func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err error) {
 	bag := new(certBag)
