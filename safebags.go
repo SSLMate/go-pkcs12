@@ -140,7 +140,6 @@ func encodePBES2Params(salt []byte, rand io.Reader) (paramBytes []byte, err erro
 	kdfParams.Salt.Tag = asn1.TagOctetString
 	kdfParams.Salt.Bytes = salt
 	kdfParams.Iterations = 2048
-	kdfParams.KeyLength = 32
 	kdfParams.Prf.Algorithm = OidHmacWithSHA256
 	if kdf.Parameters.FullBytes, err = asn1.Marshal(kdfParams); err != nil {
 		return
