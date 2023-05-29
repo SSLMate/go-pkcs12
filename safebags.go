@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"crypto/x509/pkix"
 )
 
 var (
@@ -99,8 +100,14 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 	if _, err = rand.Read(randomSalt); err != nil {
 		return nil, errors.New("pkcs12: error reading random salt: " + err.Error())
 	}
+
 	var paramBytes []byte
-	if paramBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
+	if algorithm.Equal(OidPBES2) {
+		paramBytes, err = encodePBES2Params(randomSalt, rand)
+		if err != nil {
+			return nil, errors.New("pkcs12: error encoding PBES2 params: " + err.Error())
+		}
+	} else if paramBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
 		return nil, errors.New("pkcs12: error encoding params: " + err.Error())
 	}
 
@@ -118,6 +125,36 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 
 	return asn1Data, nil
 }
+
+func encodePBES2Params(salt []byte, rand io.Reader) (paramBytes []byte, err error) {
+	iv := make([]byte, 16)
+	if _, err = rand.Read(iv); err != nil {
+		return
+	}
+	var algo, kdf, encScheme pkix.AlgorithmIdentifier
+	var kdfParams pbkdf2Params
+
+	algo.Algorithm = OidPBES2
+
+	kdf.Algorithm = oidPBKDF2
+	kdfParams.Salt.Tag = asn1.TagOctetString
+	kdfParams.Salt.Bytes = salt
+	kdfParams.Iterations = 2048
+	kdfParams.KeyLength = 32
+	kdfParams.Prf.Algorithm = OidHmacWithSHA256
+	if kdf.Parameters.FullBytes, err = asn1.Marshal(kdfParams); err != nil {
+		return
+	}
+
+	encScheme.Algorithm = OidAES256CBC
+	encScheme.Parameters.Bytes = iv
+
+	if paramBytes, err = asn1.Marshal(pbes2Params{Kdf: kdf, EncryptionScheme: encScheme}); err != nil {
+		return
+	}
+	return
+}
+
 
 func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err error) {
 	bag := new(certBag)

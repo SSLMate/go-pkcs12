@@ -879,6 +879,11 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // Encode uses the P12 structure with all the Algorithm specifications for
 // for securing the PFX.
 //
+// If Algorithms are specified to be OidPBES2, then the algorithms used
+// match what OpenSSL v3 generates, that is PBKDF2, AES-256-CBC and
+// HMAC with SHA2-256.
+// Other PBES2 algorithm choices are not currently supported.
+//
 // Example usage:
 //
 //   p := pkcs12.NewP12WithPassword("mypass")
@@ -1244,7 +1249,12 @@ func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []
 		}
 
 		algo := pkix.AlgorithmIdentifier{Algorithm: algorithm}
-		if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
+		if algo.Algorithm.Equal(OidPBES2) {
+			algo.Parameters.FullBytes, err = encodePBES2Params(randomSalt, random)
+			if err != nil {
+				return
+			}
+		} else if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
 			return
 		}
 
