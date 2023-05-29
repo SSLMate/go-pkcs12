@@ -135,7 +135,7 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 	}
 	for i, oid := range oids {
 		fmt.Println("Writing file " + names[i] + ".p12 for verification")
-		//newP12.KeyBagAlgorithm = oid
+		newP12.KeyBagAlgorithm = oid
 		newP12.CertBagAlgorithm = oid
 		var out []byte
 		out, err = pkcs12.Marshal(&newP12)
