@@ -124,12 +124,14 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 		pkcs12.OidPBEWithSHAAnd40BitRC4,
 		pkcs12.OidPBEWithSHAAnd2KeyTripleDESCBC,
 		pkcs12.OidPBEWithSHAAnd128BitRC2CBC,
+		pkcs12.OidPBES2,
 	}
 	names := []string{
 		"test-128-rc4-cbc",
 		"test-40-rc4-cbc",
 		"test-2key-3des-cbc",
 		"test-128-rc2-cbc",
+		"test-pbes2",
 	}
 	for i, oid := range oids {
 		fmt.Println("Writing file " + names[i] + ".p12 for verification")
