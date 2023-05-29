@@ -1,6 +1,7 @@
 package pkcs12_test
 
 import (
+	"crypto/rand"
 	"encoding/asn1"
 	"encoding/base64"
 	"fmt"
@@ -147,4 +148,10 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 			t.Fatal(err)
 		}
 	}
+	fmt.Println("Writing file test-safe-encode.p12 for verification")
+	out, err := pkcs12.SafeEncode(rand.Reader, newP12.KeyEntries[0].Key, newP12.CertEntries[0].Cert, nil, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile("test-safe-encode.p12", out, 0644)
 }

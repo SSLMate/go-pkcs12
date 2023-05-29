@@ -864,6 +864,32 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	})
 }
 
+// SafeEncode works much the same as Encode, but uses the default algorithms
+// now recommended by OpenSSL v3
+func SafeEncode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+
+	entries := []CertEntry{CertEntry{
+		Cert: certificate,
+	}}
+	for _, c := range caCerts {
+		entries = append(entries, CertEntry{Cert: c})
+	}
+
+	return Marshal(&P12{
+		KeyEntries: []KeyEntry{KeyEntry{
+			Key: privateKey,
+		}},
+		KeyBagAlgorithm:  OidPBES2,
+		CertBagAlgorithm: OidPBES2,
+		MACAlgorithm:     OidSHA256,
+		MACIterations:    2048,
+		Random:           rand,
+		Password:         password,
+		HasPassword:      true,
+		CertEntries:      entries,
+	})
+}
+
 // Marshal produces pfxData containing private keys (PrivateKeys),
 // an entity certificates (CertEntries), and any number of CA certificates
 // included as CertEntries.
