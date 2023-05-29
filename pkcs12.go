@@ -330,6 +330,7 @@ type P12 struct {
 	CertEntries                                     []CertEntry
 	KeyEntries                                      []KeyEntry
 	MACAlgorithm, CertBagAlgorithm, KeyBagAlgorithm asn1.ObjectIdentifier
+	MACIterations                                   int
 	Password                                        string
 	HasPassword                                     bool
 	Random                                          io.Reader
@@ -1010,7 +1011,11 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 		if _, err = p12.Random.Read(pfx.MacData.MacSalt); err != nil {
 			return nil, err
 		}
-		pfx.MacData.Iterations = 1
+		if p12.MACIterations != 0 {
+			pfx.MacData.Iterations = p12.MACIterations
+		} else {
+			pfx.MacData.Iterations = 1
+		}
 		if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
 			return nil, err
 		}
