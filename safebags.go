@@ -97,7 +97,7 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 	}
 
 	randomSalt := make([]byte, 8)
-	if _, err = rand.Read(randomSalt); err != nil {
+	if _, err = io.ReadFull(rand, randomSalt); err != nil {
 		return nil, errors.New("pkcs12: error reading random salt: " + err.Error())
 	}
 
@@ -128,7 +128,7 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 
 func encodePBES2Params(salt []byte, rand io.Reader) (paramBytes []byte, err error) {
 	iv := make([]byte, 16)
-	if _, err = rand.Read(iv); err != nil {
+	if _, err = io.ReadFull(rand, iv); err != nil {
 		return
 	}
 	var algo, kdf, encScheme pkix.AlgorithmIdentifier

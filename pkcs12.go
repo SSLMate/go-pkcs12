@@ -1222,7 +1222,7 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 		// compute the MAC
 		pfx.MacData.Mac.Algorithm.Algorithm = ts.MACAlgorithm
 		pfx.MacData.MacSalt = make([]byte, 8)
-		if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+		if _, err = io.ReadFull(ts.Random, pfx.MacData.MacSalt); err != nil {
 			return nil, err
 		}
 		pfx.MacData.Iterations = 1
@@ -1273,7 +1273,7 @@ func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []
 		}
 	} else {
 		randomSalt := make([]byte, 8)
-		if _, err = random.Read(randomSalt); err != nil {
+		if _, err = io.ReadFull(random, randomSalt); err != nil {
 			return
 		}
 
