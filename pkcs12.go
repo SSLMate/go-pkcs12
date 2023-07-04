@@ -869,7 +869,11 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 
 // SafeEncode works much the same as Encode, but uses the default algorithms
 // now recommended by OpenSSL v3
+// Additionally, it uses a safer number of KDF and MAC Iterations as recommended by OWASP
 func SafeEncode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+
+	// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+	iterations := 600000
 
 	entries := []CertEntry{CertEntry{
 		Cert: certificate,
@@ -885,7 +889,8 @@ func SafeEncode(rand io.Reader, privateKey interface{}, certificate *x509.Certif
 		KeyBagAlgorithm:  OidPBES2,
 		CertBagAlgorithm: OidPBES2,
 		MACAlgorithm:     OidSHA256,
-		MACIterations:    2048,
+		MACIterations:    iterations,
+		KDFIterations:    iterations,
 		Random:           rand,
 		Password:         password,
 		HasPassword:      true,
