@@ -74,7 +74,7 @@ func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{
 	return
 }
 
-func EncodePkcs8ShroudedKeyBagWithPassword(rand io.Reader, privateKey, password interface{}, algorithm asn1.ObjectIdentifier) (asn1Data []byte, err error) {
+func EncodePkcs8ShroudedKeyBagWithPassword(rand io.Reader, privateKey, password interface{}, algorithm asn1.ObjectIdentifier, iterations int) (asn1Data []byte, err error) {
 	var encodedPassword []byte
 	switch val := password.(type) {
 	case string:
@@ -88,9 +88,9 @@ func EncodePkcs8ShroudedKeyBagWithPassword(rand io.Reader, privateKey, password 
 		err = fmt.Errorf("pkcs12: unknown password type: %t", val)
 		return
 	}
-	return encodePkcs8ShroudedKeyBag(rand, privateKey, encodedPassword, algorithm)
+	return encodePkcs8ShroudedKeyBag(rand, privateKey, encodedPassword, algorithm, iterations)
 }
-func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password []byte, algorithm asn1.ObjectIdentifier) (asn1Data []byte, err error) {
+func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password []byte, algorithm asn1.ObjectIdentifier, iterations int) (asn1Data []byte, err error) {
 	var pkData []byte
 	if pkData, err = x509.MarshalPKCS8PrivateKey(privateKey); err != nil {
 		return nil, errors.New("pkcs12: error encoding PKCS#8 private key: " + err.Error())
@@ -103,11 +103,11 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 
 	var paramBytes []byte
 	if algorithm.Equal(OidPBES2) {
-		paramBytes, err = encodePBES2Params(randomSalt, rand)
+		paramBytes, err = encodePBES2Params(randomSalt, iterations, rand)
 		if err != nil {
 			return nil, errors.New("pkcs12: error encoding PBES2 params: " + err.Error())
 		}
-	} else if paramBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
+	} else if paramBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: iterations}); err != nil {
 		return nil, errors.New("pkcs12: error encoding params: " + err.Error())
 	}
 
@@ -126,7 +126,7 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, password 
 	return asn1Data, nil
 }
 
-func encodePBES2Params(salt []byte, rand io.Reader) (paramBytes []byte, err error) {
+func encodePBES2Params(salt []byte, iterations int, rand io.Reader) (paramBytes []byte, err error) {
 	iv := make([]byte, 16)
 	if _, err = io.ReadFull(rand, iv); err != nil {
 		return
@@ -139,7 +139,7 @@ func encodePBES2Params(salt []byte, rand io.Reader) (paramBytes []byte, err erro
 	kdf.Algorithm = oidPBKDF2
 	kdfParams.Salt.Tag = asn1.TagOctetString
 	kdfParams.Salt.Bytes = salt
-	kdfParams.Iterations = 2048
+	kdfParams.Iterations = iterations
 	kdfParams.Prf.Algorithm = OidHmacWithSHA256
 	if kdf.Parameters.FullBytes, err = asn1.Marshal(kdfParams); err != nil {
 		return

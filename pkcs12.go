@@ -331,6 +331,7 @@ type P12 struct {
 	KeyEntries                                      []KeyEntry
 	MACAlgorithm, CertBagAlgorithm, KeyBagAlgorithm asn1.ObjectIdentifier
 	MACIterations                                   int
+	KDFIterations                                   int
 	Password                                        string
 	HasPassword                                     bool
 	Random                                          io.Reader
@@ -508,6 +509,8 @@ func Unmarshal(pfxData []byte, p12 *P12) (err error) {
 type TrustStore struct {
 	Entries          []TrustStoreEntry
 	MACAlgorithm     asn1.ObjectIdentifier
+	MACIterations    int
+	KDFIterations    int
 	CertBagAlgorithm asn1.ObjectIdentifier
 	Random           io.Reader
 	Password         string
@@ -958,6 +961,11 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 		p12.Random = rand.Reader
 	}
 
+	if p12.KDFIterations == 0 {
+		// Default to the same value used for OpenSSL PKCS12_DEFAULT_ITER
+		p12.KDFIterations = 2048
+	}
+
 	pfx := pfxPdu{
 		Version: 3,
 	}
@@ -1000,7 +1008,7 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 			}
 		} else {
 			if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(p12.Random, k.Key,
-				encodedPassword, p12.KeyBagAlgorithm); err != nil {
+				encodedPassword, p12.KeyBagAlgorithm, p12.KDFIterations); err != nil {
 				return nil, err
 			}
 		}
@@ -1018,10 +1026,10 @@ func Marshal(p12 *P12) (pfxData []byte, err error) {
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(p12.Random, p12.CertBagAlgorithm, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(p12.Random, p12.CertBagAlgorithm, certBags, p12.KDFIterations, encodedPassword); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents(p12.Random, p12.KeyBagAlgorithm, keyBags, nil); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(p12.Random, p12.KeyBagAlgorithm, keyBags, p12.KDFIterations, nil); err != nil {
 		return nil, err
 	}
 
@@ -1186,6 +1194,10 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 		ts.Random = rand.Reader
 	}
 
+	if ts.KDFIterations == 0 {
+		ts.KDFIterations = 2048
+	}
+
 	pfx := pfxPdu{
 		Version: 3,
 	}
@@ -1209,7 +1221,7 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 	// Construct an authenticated safe with one SafeContent.
 	// The SafeContents is encrypted and contains the cert bags.
 	var authenticatedSafe [1]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(ts.Random, ts.CertBagAlgorithm, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(ts.Random, ts.CertBagAlgorithm, certBags, ts.KDFIterations, encodedPassword); err != nil {
 		return nil, err
 	}
 
@@ -1225,7 +1237,10 @@ func MarshalTrustStore(ts *TrustStore) (pfxData []byte, err error) {
 		if _, err = io.ReadFull(ts.Random, pfx.MacData.MacSalt); err != nil {
 			return nil, err
 		}
-		pfx.MacData.Iterations = 1
+		if ts.MACIterations == 0 {
+			ts.MACIterations = 1
+		}
+		pfx.MacData.Iterations = ts.MACIterations
 		if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
 			return nil, err
 		}
@@ -1257,7 +1272,7 @@ func makeCertBag(certBytes []byte) (certBag *safeBag, err error) {
 	return
 }
 
-func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []safeBag, password []byte) (ci contentInfo, err error) {
+func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []safeBag, iterations int, password []byte) (ci contentInfo, err error) {
 	var data []byte
 	if data, err = asn1.Marshal(bags); err != nil {
 		return
@@ -1279,11 +1294,11 @@ func makeSafeContents(random io.Reader, algorithm asn1.ObjectIdentifier, bags []
 
 		algo := pkix.AlgorithmIdentifier{Algorithm: algorithm}
 		if algo.Algorithm.Equal(OidPBES2) {
-			algo.Parameters.FullBytes, err = encodePBES2Params(randomSalt, random)
+			algo.Parameters.FullBytes, err = encodePBES2Params(randomSalt, iterations, random)
 			if err != nil {
 				return
 			}
-		} else if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
+		} else if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: iterations}); err != nil {
 			return
 		}
 

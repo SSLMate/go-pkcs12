@@ -122,7 +122,7 @@ cLXjHUOhDDyqBAhlzWP0LJxhZQICCAA=`
 		fmt.Println("encrypting key...")
 		// Encrypting with a key different than the pkcs12
 		b, err = pkcs12.EncodePkcs8ShroudedKeyBagWithPassword(rand.Reader, k.Key,
-			"key1pass", pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC)
+			"key1pass", pkcs12.OidPBEWithSHAAnd3KeyTripleDESCBC, 2048)
 		return
 	}
 
