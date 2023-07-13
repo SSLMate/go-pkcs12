@@ -32,10 +32,98 @@ import (
 )
 
 // DefaultPassword is the string "changeit", a commonly-used password for
-// PKCS#12 files. Due to the weak encryption used by PKCS#12, it is
-// RECOMMENDED that you use DefaultPassword when encoding PKCS#12 files,
-// and protect the PKCS#12 files using other means.
+// PKCS#12 files.
 const DefaultPassword = "changeit"
+
+// An Encoder contains methods for encoding PKCS#12 files.  This package
+// defines several different Encoders with different parameters.
+type Encoder struct {
+	macAlgorithm         asn1.ObjectIdentifier
+	certAlgorithm        asn1.ObjectIdentifier
+	keyAlgorithm         asn1.ObjectIdentifier
+	macIterations        int
+	encryptionIterations int
+}
+
+// Legacy encodes PKCS#12 files using weak algorithms that were
+// traditionally used in PKCS#12 files, including those produced by old
+// versions of OpenSSL and this package.  Specifically, certificates
+// are encrypted using PBE with RC2, and keys are encrypted using PBE with 3DES.
+// Encryption keys are derived with 2048 iterations of HMAC-SHA-1, and MAC
+// keys are derived with 1 iteration of HMAC-SHA-1.  The MAC algorithm is HMAC-SHA-1.
+//
+// Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
+// when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
+// using other means.
+//
+// The behavior of this encoder is frozen and will not change in future
+// versions of this package.
+var Legacy = &Encoder{
+	macAlgorithm:         oidSHA1,
+	certAlgorithm:        oidPBEWithSHAAnd40BitRC2CBC,
+	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
+	macIterations:        1,
+	encryptionIterations: 2048,
+}
+
+// LegacyDESCert is like [Legacy], but encrypts certificates with 3DES,
+// similar to OpenSSL's -descert option.
+//
+// Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
+// when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
+// using other means.
+//
+// The behavior of this encoder is frozen and will not change in future
+// versions of this package.
+var LegacyDESCert = &Encoder{
+	macAlgorithm:         oidSHA1,
+	certAlgorithm:        oidPBEWithSHAAnd3KeyTripleDESCBC,
+	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
+	macIterations:        1,
+	encryptionIterations: 2048,
+}
+
+// Passwordless encodes PKCS#12 trust stores without any encryption,
+// for compatibility with the password-less keystores introduced in Java 18.
+//
+// When using this encoder, you must specify an empty password.  Currently, you
+// can only use this encoder with EncodeTrustStore and EncodeTrustStoreEntries.
+//
+// The behavior of this encoder is frozen and will not change in future
+// versions of this package.
+var Passwordless = &Encoder{
+	macAlgorithm:  nil,
+	certAlgorithm: nil,
+	keyAlgorithm:  nil,
+}
+
+// Openssl3 encodes PKCS#12 files using OpenSSL 3's default parameters.
+// Private keys and certificates are encrypted using PBES2 with PBKDF2
+// (2048 iterations of HMAC-SHA-2) and AES-256-CBC.  The MAC algorithm is HMAC-SHA-2.
+//
+// The behavior of this encoder is frozen and will not change in future
+// versions of this package.
+var Openssl3 = &Encoder{
+	macAlgorithm:         oidSHA256,
+	certAlgorithm:        oidPBES2,
+	keyAlgorithm:         oidPBES2,
+	macIterations:        2048,
+	encryptionIterations: 2048,
+}
+
+// Modern encodes PKCS#12 files using modern, secure parameters.
+// Private keys and certificates are encrypted using PBES2 with PBKDF2
+// (600,000 iterations of HMAC-SHA-2) and AES-256-CBC.  The MAC algorithm is HMAC-SHA-2.
+//
+// The behavior of this encoder will change in future versions of this
+// package to keep up with modern practices.
+var Modern = &Encoder{
+	macAlgorithm:         oidSHA256,
+	certAlgorithm:        oidPBES2,
+	keyAlgorithm:         oidPBES2,
+	macIterations:        600000,
+	encryptionIterations: 600000,
+}
 
 var (
 	oidDataContentType          = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 1})
@@ -440,25 +528,35 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 	return bags, password, nil
 }
 
+// Encode is equivalent to Legacy.Encode.
+//
+// Deprecated: call Legacy.Encode to continue using legacy/weak encryption, or consider
+// one of the other encoders for better encryption.
+func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+	return Legacy.Encode(rand, privateKey, certificate, caCerts, password)
+}
+
 // Encode produces pfxData containing one private key (privateKey), an
 // end-entity certificate (certificate), and any number of CA certificates
 // (caCerts).
 //
-// The private key is encrypted with the provided password, but due to the
-// weak encryption primitives used by PKCS#12, it is RECOMMENDED that you
-// specify a hard-coded password (such as [DefaultPassword]) and protect
-// the resulting pfxData using other means.
+// The pfxData is encrypted and authenticated with keys derived from
+// the provided password.
 //
 // The rand argument is used to provide entropy for the encryption, and
 // can be set to [crypto/rand.Reader].
 //
 // Encode emulates the behavior of OpenSSL's PKCS12_create: it creates two
-// SafeContents: one that's encrypted with RC2 and contains the certificates,
-// and another that is unencrypted and contains the private key shrouded with
-// 3DES  The private key bag and the end-entity certificate bag have the
-// LocalKeyId attribute set to the SHA-1 fingerprint of the end-entity
-// certificate.
-func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+// SafeContents: one that's encrypted with the certificate encryption algorithm
+// and contains the certificates, and another that is unencrypted and contains the
+// private key shrouded with the key encryption algorithm.  The private key bag and
+// the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
+// fingerprint of the end-entity certificate.
+func (enc *Encoder) Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+	if enc.keyAlgorithm == nil {
+		return nil, errors.New("passwordless keystores not supported")
+	}
+
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
@@ -496,7 +594,7 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	keyBag.Value.Class = 2
 	keyBag.Value.Tag = 0
 	keyBag.Value.IsCompound = true
-	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(rand, privateKey, encodedPassword); err != nil {
+	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(rand, privateKey, enc.keyAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
 		return nil, err
 	}
 	keyBag.Attributes = append(keyBag.Attributes, localKeyIdAttr)
@@ -505,10 +603,10 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil, nil, 0); err != nil {
 		return nil, err
 	}
 
@@ -517,15 +615,17 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 		return nil, err
 	}
 
-	// compute the MAC
-	pfx.MacData.Mac.Algorithm.Algorithm = oidSHA1
-	pfx.MacData.MacSalt = make([]byte, 8)
-	if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
-		return nil, err
-	}
-	pfx.MacData.Iterations = 1
-	if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
-		return nil, err
+	if enc.macAlgorithm != nil {
+		// compute the MAC
+		pfx.MacData.Mac.Algorithm.Algorithm = enc.macAlgorithm
+		pfx.MacData.MacSalt = make([]byte, 8)
+		if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+			return nil, err
+		}
+		pfx.MacData.Iterations = enc.macIterations
+		if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
+			return nil, err
+		}
 	}
 
 	pfx.AuthSafe.ContentType = oidDataContentType
@@ -542,18 +642,22 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 	return
 }
 
+// EncodeTrustStore is equivalent to Legacy.EncodeTrustStore.
+//
+// Deprecated: call Legacy.EncodeTrustStore to continue using legacy encryption, or consider
+// one of the other encoders, such as [Passwordless].
+func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
+	return Legacy.EncodeTrustStore(rand, certs, password)
+}
+
 // EncodeTrustStore produces pfxData containing any number of CA certificates
 // (certs) to be trusted. The certificates will be marked with a special OID that
 // allow it to be used as a Java TrustStore in Java 1.8 and newer.
 //
-// Due to the weak encryption primitives used by PKCS#12, it is RECOMMENDED that
-// you specify a hard-coded password (such as [DefaultPassword]) and protect
-// the resulting pfxData using other means.
-//
 // The rand argument is used to provide entropy for the encryption, and
 // can be set to [crypto/rand.Reader].
 //
-// EncodeTrustStore creates a single SafeContents that's encrypted with RC2
+// EncodeTrustStore creates a single SafeContents that's optionally encrypted
 // and contains the certificates.
 //
 // The Subject of the certificates are used as the Friendly Names (Aliases)
@@ -561,7 +665,7 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // resulting Friendly Names (Aliases) will be identical, which Java may treat as
 // the same entry when used as a Java TrustStore, e.g. with `keytool`.  To
 // customize the Friendly Names, use [EncodeTrustStoreEntries].
-func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
+func (enc *Encoder) EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
 	var certsWithFriendlyNames []TrustStoreEntry
 	for _, cert := range certs {
 		certsWithFriendlyNames = append(certsWithFriendlyNames, TrustStoreEntry{
@@ -569,7 +673,7 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 			FriendlyName: cert.Subject.String(),
 		})
 	}
-	return EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password)
+	return enc.EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password)
 }
 
 // TrustStoreEntry represents an entry in a Java TrustStore.
@@ -578,11 +682,19 @@ type TrustStoreEntry struct {
 	FriendlyName string
 }
 
+// EncodeTrustStoreEntries is equivalent to Legacy.EncodeTrustStoreEntries.
+//
+// Deprecated: call Legacy.EncodeTrustStoreEntries to continue using legacy encryption, or consider
+// one of the other encoders, such as Passwordless.
+func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
+	return Legacy.EncodeTrustStoreEntries(rand, entries, password)
+}
+
 // EncodeTrustStoreEntries produces pfxData containing any number of CA
 // certificates (entries) to be trusted. The certificates will be marked with a
 // special OID that allow it to be used as a Java TrustStore in Java 1.8 and newer.
 //
-// This is identical to [EncodeTrustStore], but also allows for setting specific
+// This is identical to [Encoder.EncodeTrustStore], but also allows for setting specific
 // Friendly Names (Aliases) to be used per certificate, by specifying a slice
 // of TrustStoreEntry.
 //
@@ -590,16 +702,16 @@ type TrustStoreEntry struct {
 // resulting Friendly Names (Aliases) in the pfxData will be identical, which Java
 // may treat as the same entry when used as a Java TrustStore, e.g. with `keytool`.
 //
-// Due to the weak encryption primitives used by PKCS#12, it is RECOMMENDED that
-// you specify a hard-coded password (such as [DefaultPassword]) and protect
-// the resulting pfxData using other means.
-//
 // The rand argument is used to provide entropy for the encryption, and
 // can be set to [crypto/rand.Reader].
 //
-// EncodeTrustStoreEntries creates a single SafeContents that's encrypted
-// with RC2 and contains the certificates.
-func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
+// EncodeTrustStoreEntries creates a single SafeContents that's optionally
+// encrypted and contains the certificates.
+func (enc *Encoder) EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
+	if enc.macAlgorithm == nil && enc.certAlgorithm == nil && password != "" {
+		return nil, errors.New("password must be empty")
+	}
+
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
@@ -663,9 +775,9 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 	}
 
 	// Construct an authenticated safe with one SafeContent.
-	// The SafeContents is encrypted and contains the cert bags.
+	// The SafeContents is contains the cert bags.
 	var authenticatedSafe [1]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, encodedPassword); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
 		return nil, err
 	}
 
@@ -674,15 +786,17 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 		return nil, err
 	}
 
-	// compute the MAC
-	pfx.MacData.Mac.Algorithm.Algorithm = oidSHA1
-	pfx.MacData.MacSalt = make([]byte, 8)
-	if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
-		return nil, err
-	}
-	pfx.MacData.Iterations = 1
-	if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
-		return nil, err
+	if enc.macAlgorithm != nil {
+		// compute the MAC
+		pfx.MacData.Mac.Algorithm.Algorithm = enc.macAlgorithm
+		pfx.MacData.MacSalt = make([]byte, 8)
+		if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+			return nil, err
+		}
+		pfx.MacData.Iterations = enc.macIterations
+		if err = computeMac(&pfx.MacData, authenticatedSafeBytes, encodedPassword); err != nil {
+			return nil, err
+		}
 	}
 
 	pfx.AuthSafe.ContentType = oidDataContentType
@@ -712,13 +826,13 @@ func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeB
 	return
 }
 
-func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci contentInfo, err error) {
+func makeSafeContents(rand io.Reader, bags []safeBag, algoID asn1.ObjectIdentifier, password []byte, iterations int) (ci contentInfo, err error) {
 	var data []byte
 	if data, err = asn1.Marshal(bags); err != nil {
 		return
 	}
 
-	if password == nil {
+	if algoID == nil {
 		ci.ContentType = oidDataContentType
 		ci.Content.Class = 2
 		ci.Content.Tag = 0
@@ -727,15 +841,21 @@ func makeSafeContents(rand io.Reader, bags []safeBag, password []byte) (ci conte
 			return
 		}
 	} else {
-		randomSalt := make([]byte, 8)
-		if _, err = rand.Read(randomSalt); err != nil {
-			return
-		}
 
 		var algo pkix.AlgorithmIdentifier
-		algo.Algorithm = oidPBEWithSHAAnd40BitRC2CBC
-		if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: 2048}); err != nil {
-			return
+		algo.Algorithm = algoID
+		if algoID.Equal(oidPBES2) {
+			if algo.Parameters.FullBytes, err = makePBES2Parameters(rand, iterations); err != nil {
+				return
+			}
+		} else {
+			randomSalt := make([]byte, 8)
+			if _, err = rand.Read(randomSalt); err != nil {
+				return
+			}
+			if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: iterations}); err != nil {
+				return
+			}
 		}
 
 		var encryptedData encryptedData

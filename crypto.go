@@ -16,6 +16,7 @@ import (
 	"encoding/asn1"
 	"errors"
 	"hash"
+	"io"
 
 	"golang.org/x/crypto/pbkdf2"
 	"software.sslmate.com/src/go-pkcs12/internal/rc2"
@@ -262,4 +263,36 @@ func pbEncrypt(info encryptable, decrypted []byte, password []byte) error {
 type encryptable interface {
 	Algorithm() pkix.AlgorithmIdentifier
 	SetData([]byte)
+}
+
+func makePBES2Parameters(rand io.Reader, iterations int) ([]byte, error) {
+	var err error
+
+	randomSalt := make([]byte, 8)
+	if _, err := rand.Read(randomSalt); err != nil {
+		return nil, err
+	}
+	randomIV := make([]byte, 16)
+	if _, err := rand.Read(randomIV); err != nil {
+		return nil, err
+	}
+
+	var kdfparams pbkdf2Params
+	if kdfparams.Salt.FullBytes, err = asn1.Marshal(randomSalt); err != nil {
+		return nil, err
+	}
+	kdfparams.Iterations = iterations
+	kdfparams.Prf.Algorithm = oidHmacWithSHA256
+
+	var params pbes2Params
+	params.Kdf.Algorithm = oidPBKDF2
+	if params.Kdf.Parameters.FullBytes, err = asn1.Marshal(kdfparams); err != nil {
+		return nil, err
+	}
+	params.EncryptionScheme.Algorithm = oidAES256CBC
+	if params.EncryptionScheme.Parameters.FullBytes, err = asn1.Marshal(randomIV); err != nil {
+		return nil, err
+	}
+
+	return asn1.Marshal(params)
 }
