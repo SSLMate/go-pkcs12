@@ -265,20 +265,16 @@ type encryptable interface {
 	SetData([]byte)
 }
 
-func makePBES2Parameters(rand io.Reader, iterations int, saltLen int) ([]byte, error) {
+func makePBES2Parameters(rand io.Reader, salt []byte, iterations int) ([]byte, error) {
 	var err error
 
-	randomSalt := make([]byte, saltLen)
-	if _, err := rand.Read(randomSalt); err != nil {
-		return nil, err
-	}
 	randomIV := make([]byte, 16)
 	if _, err := rand.Read(randomIV); err != nil {
 		return nil, err
 	}
 
 	var kdfparams pbkdf2Params
-	if kdfparams.Salt.FullBytes, err = asn1.Marshal(randomSalt); err != nil {
+	if kdfparams.Salt.FullBytes, err = asn1.Marshal(salt); err != nil {
 		return nil, err
 	}
 	kdfparams.Iterations = iterations

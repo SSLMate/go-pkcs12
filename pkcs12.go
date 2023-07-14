@@ -865,18 +865,18 @@ func makeSafeContents(rand io.Reader, bags []safeBag, algoID asn1.ObjectIdentifi
 			return
 		}
 	} else {
+		randomSalt := make([]byte, saltLen)
+		if _, err = rand.Read(randomSalt); err != nil {
+			return
+		}
 
 		var algo pkix.AlgorithmIdentifier
 		algo.Algorithm = algoID
 		if algoID.Equal(oidPBES2) {
-			if algo.Parameters.FullBytes, err = makePBES2Parameters(rand, iterations, saltLen); err != nil {
+			if algo.Parameters.FullBytes, err = makePBES2Parameters(rand, randomSalt, iterations); err != nil {
 				return
 			}
 		} else {
-			randomSalt := make([]byte, saltLen)
-			if _, err = rand.Read(randomSalt); err != nil {
-				return
-			}
 			if algo.Parameters.FullBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: iterations}); err != nil {
 				return
 			}

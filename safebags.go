@@ -54,16 +54,17 @@ func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey interface{}, algoID as
 		return nil, errors.New("pkcs12: error encoding PKCS#8 private key: " + err.Error())
 	}
 
+	randomSalt := make([]byte, saltLen)
+	if _, err = rand.Read(randomSalt); err != nil {
+		return nil, errors.New("pkcs12: error reading random salt: " + err.Error())
+	}
+
 	var paramBytes []byte
 	if algoID.Equal(oidPBES2) {
-		if paramBytes, err = makePBES2Parameters(rand, iterations, saltLen); err != nil {
+		if paramBytes, err = makePBES2Parameters(rand, randomSalt, iterations); err != nil {
 			return nil, errors.New("pkcs12: error encoding params: " + err.Error())
 		}
 	} else {
-		randomSalt := make([]byte, saltLen)
-		if _, err = rand.Read(randomSalt); err != nil {
-			return nil, errors.New("pkcs12: error reading random salt: " + err.Error())
-		}
 		if paramBytes, err = asn1.Marshal(pbeParams{Salt: randomSalt, Iterations: iterations}); err != nil {
 			return nil, errors.New("pkcs12: error encoding params: " + err.Error())
 		}
