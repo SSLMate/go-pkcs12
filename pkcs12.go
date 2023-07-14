@@ -580,17 +580,18 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 	}
 
 	var certBags []safeBag
-	var certBag *safeBag
-	if certBag, err = makeCertBag(certificate.Raw, []pkcs12Attribute{localKeyIdAttr}); err != nil {
+	if certBag, err := makeCertBag(certificate.Raw, []pkcs12Attribute{localKeyIdAttr}); err != nil {
 		return nil, err
+	} else {
+		certBags = append(certBags, *certBag)
 	}
-	certBags = append(certBags, *certBag)
 
 	for _, cert := range caCerts {
-		if certBag, err = makeCertBag(cert.Raw, []pkcs12Attribute{}); err != nil {
+		if certBag, err := makeCertBag(cert.Raw, []pkcs12Attribute{}); err != nil {
 			return nil, err
+		} else {
+			certBags = append(certBags, *certBag)
 		}
-		certBags = append(certBags, *certBag)
 	}
 
 	var keyBag safeBag
