@@ -55,9 +55,6 @@ type Encoder struct {
 // Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
 // when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
 // using other means.
-//
-// The behavior of this encoder is frozen and will not change in future
-// versions of this package.
 var Legacy = &Encoder{
 	macAlgorithm:         oidSHA1,
 	certAlgorithm:        oidPBEWithSHAAnd40BitRC2CBC,
@@ -72,9 +69,6 @@ var Legacy = &Encoder{
 // Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
 // when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
 // using other means.
-//
-// The behavior of this encoder is frozen and will not change in future
-// versions of this package.
 var LegacyDESCert = &Encoder{
 	macAlgorithm:         oidSHA1,
 	certAlgorithm:        oidPBEWithSHAAnd3KeyTripleDESCBC,
@@ -88,9 +82,6 @@ var LegacyDESCert = &Encoder{
 //
 // When using this encoder, you must specify an empty password.  Currently, you
 // can only use this encoder with EncodeTrustStore and EncodeTrustStoreEntries.
-//
-// The behavior of this encoder is frozen and will not change in future
-// versions of this package.
 var Passwordless = &Encoder{
 	macAlgorithm:  nil,
 	certAlgorithm: nil,
@@ -100,9 +91,6 @@ var Passwordless = &Encoder{
 // Openssl3 encodes PKCS#12 files using OpenSSL 3's default parameters.
 // Private keys and certificates are encrypted using PBES2 with PBKDF2
 // (2048 iterations of HMAC-SHA-2) and AES-256-CBC.  The MAC algorithm is HMAC-SHA-2.
-//
-// The behavior of this encoder is frozen and will not change in future
-// versions of this package.
 var Openssl3 = &Encoder{
 	macAlgorithm:         oidSHA256,
 	certAlgorithm:        oidPBES2,
@@ -115,8 +103,8 @@ var Openssl3 = &Encoder{
 // Private keys and certificates are encrypted using PBES2 with PBKDF2
 // (600,000 iterations of HMAC-SHA-2) and AES-256-CBC.  The MAC algorithm is HMAC-SHA-2.
 //
-// The behavior of this encoder will change in future versions of this
-// package to keep up with modern practices.
+// The behavior of this encoder may change in backwards-incompatible ways
+// to keep up with modern practices.
 var Modern = &Encoder{
 	macAlgorithm:         oidSHA256,
 	certAlgorithm:        oidPBES2,
@@ -409,6 +397,9 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 // DecodeTrustStore extracts the certificates from pfxData, which must be a DER-encoded
 // PKCS#12 file containing exclusively certificates with attribute 2.16.840.1.113894.746875.1.1,
 // which is used by Java to designate a trust anchor.
+//
+// If the password argument is empty, DecodeTrustStore will decode either password-less
+// PKCS#12 files (i.e. those without encryption) or files with a literal empty password.
 func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificate, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
@@ -528,7 +519,7 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 	return bags, password, nil
 }
 
-// Encode is equivalent to Legacy.Encode.
+// Encode is equivalent to Legacy.Encode.  See [Encoder.Encode] and [Legacy] for details.
 //
 // Deprecated: call Legacy.Encode to continue using legacy/weak encryption, or consider
 // one of the other encoders for better encryption.
@@ -642,7 +633,7 @@ func (enc *Encoder) Encode(rand io.Reader, privateKey interface{}, certificate *
 	return
 }
 
-// EncodeTrustStore is equivalent to Legacy.EncodeTrustStore.
+// EncodeTrustStore is equivalent to Legacy.EncodeTrustStore.  See [Encoder.EncodeTrustStore] and [Legacy] for details.
 //
 // Deprecated: call Legacy.EncodeTrustStore to continue using legacy encryption, or consider
 // one of the other encoders, such as [Passwordless].
@@ -683,6 +674,7 @@ type TrustStoreEntry struct {
 }
 
 // EncodeTrustStoreEntries is equivalent to Legacy.EncodeTrustStoreEntries.
+// See [Encoder.EncodeTrustStoreEntries] and [Legacy] for details.
 //
 // Deprecated: call Legacy.EncodeTrustStoreEntries to continue using legacy encryption, or consider
 // one of the other encoders, such as Passwordless.
