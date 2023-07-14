@@ -265,10 +265,10 @@ type encryptable interface {
 	SetData([]byte)
 }
 
-func makePBES2Parameters(rand io.Reader, iterations int) ([]byte, error) {
+func makePBES2Parameters(rand io.Reader, iterations int, saltLen int) ([]byte, error) {
 	var err error
 
-	randomSalt := make([]byte, 8)
+	randomSalt := make([]byte, saltLen)
 	if _, err := rand.Read(randomSalt); err != nil {
 		return nil, err
 	}

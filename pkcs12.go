@@ -44,6 +44,7 @@ type Encoder struct {
 	keyAlgorithm         asn1.ObjectIdentifier
 	macIterations        int
 	encryptionIterations int
+	saltLen              int
 	rand                 io.Reader
 }
 
@@ -71,6 +72,7 @@ var Legacy = &Encoder{
 	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
 	macIterations:        1,
 	encryptionIterations: 2048,
+	saltLen:              8,
 	rand:                 rand.Reader,
 }
 
@@ -86,6 +88,7 @@ var LegacyDESCert = &Encoder{
 	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
 	macIterations:        1,
 	encryptionIterations: 2048,
+	saltLen:              8,
 	rand:                 rand.Reader,
 }
 
@@ -109,6 +112,7 @@ var Openssl3 = &Encoder{
 	keyAlgorithm:         oidPBES2,
 	macIterations:        2048,
 	encryptionIterations: 2048,
+	saltLen:              8,
 	rand:                 rand.Reader,
 }
 
@@ -124,6 +128,7 @@ var Modern = &Encoder{
 	keyAlgorithm:         oidPBES2,
 	macIterations:        600000,
 	encryptionIterations: 600000,
+	saltLen:              16,
 	rand:                 rand.Reader,
 }
 
@@ -616,7 +621,7 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 		keyBag.Value.Class = 2
 		keyBag.Value.Tag = 0
 		keyBag.Value.IsCompound = true
-		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(enc.rand, privateKey, enc.keyAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
+		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(enc.rand, privateKey, enc.keyAlgorithm, encodedPassword, enc.encryptionIterations, enc.saltLen); err != nil {
 			return nil, err
 		}
 	}
@@ -626,10 +631,10 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(enc.rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(enc.rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations, enc.saltLen); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents(enc.rand, []safeBag{keyBag}, nil, nil, 0); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(enc.rand, []safeBag{keyBag}, nil, nil, 0, 0); err != nil {
 		return nil, err
 	}
 
@@ -641,7 +646,7 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 	if enc.macAlgorithm != nil {
 		// compute the MAC
 		pfx.MacData.Mac.Algorithm.Algorithm = enc.macAlgorithm
-		pfx.MacData.MacSalt = make([]byte, 8)
+		pfx.MacData.MacSalt = make([]byte, enc.saltLen)
 		if _, err = enc.rand.Read(pfx.MacData.MacSalt); err != nil {
 			return nil, err
 		}
@@ -796,7 +801,7 @@ func (enc *Encoder) EncodeTrustStoreEntries(entries []TrustStoreEntry, password 
 	// Construct an authenticated safe with one SafeContent.
 	// The SafeContents is contains the cert bags.
 	var authenticatedSafe [1]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(enc.rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(enc.rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations, enc.saltLen); err != nil {
 		return nil, err
 	}
 
@@ -808,7 +813,7 @@ func (enc *Encoder) EncodeTrustStoreEntries(entries []TrustStoreEntry, password 
 	if enc.macAlgorithm != nil {
 		// compute the MAC
 		pfx.MacData.Mac.Algorithm.Algorithm = enc.macAlgorithm
-		pfx.MacData.MacSalt = make([]byte, 8)
+		pfx.MacData.MacSalt = make([]byte, enc.saltLen)
 		if _, err = enc.rand.Read(pfx.MacData.MacSalt); err != nil {
 			return nil, err
 		}
@@ -845,7 +850,7 @@ func makeCertBag(certBytes []byte, attributes []pkcs12Attribute) (certBag *safeB
 	return
 }
 
-func makeSafeContents(rand io.Reader, bags []safeBag, algoID asn1.ObjectIdentifier, password []byte, iterations int) (ci contentInfo, err error) {
+func makeSafeContents(rand io.Reader, bags []safeBag, algoID asn1.ObjectIdentifier, password []byte, iterations int, saltLen int) (ci contentInfo, err error) {
 	var data []byte
 	if data, err = asn1.Marshal(bags); err != nil {
 		return
@@ -864,11 +869,11 @@ func makeSafeContents(rand io.Reader, bags []safeBag, algoID asn1.ObjectIdentifi
 		var algo pkix.AlgorithmIdentifier
 		algo.Algorithm = algoID
 		if algoID.Equal(oidPBES2) {
-			if algo.Parameters.FullBytes, err = makePBES2Parameters(rand, iterations); err != nil {
+			if algo.Parameters.FullBytes, err = makePBES2Parameters(rand, iterations, saltLen); err != nil {
 				return
 			}
 		} else {
-			randomSalt := make([]byte, 8)
+			randomSalt := make([]byte, saltLen)
 			if _, err = rand.Read(randomSalt); err != nil {
 				return
 			}
