@@ -19,6 +19,7 @@ package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
@@ -43,6 +44,15 @@ type Encoder struct {
 	keyAlgorithm         asn1.ObjectIdentifier
 	macIterations        int
 	encryptionIterations int
+	rand                 io.Reader
+}
+
+// WithRand creates a new Encoder identical to enc except that
+// it will use the given io.Reader for its random number generator
+// instead of [crypto/rand.Reader].
+func (enc Encoder) WithRand(rand io.Reader) *Encoder {
+	enc.rand = rand
+	return &enc
 }
 
 // Legacy encodes PKCS#12 files using weak algorithms that were
@@ -61,6 +71,7 @@ var Legacy = &Encoder{
 	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
 	macIterations:        1,
 	encryptionIterations: 2048,
+	rand:                 rand.Reader,
 }
 
 // LegacyDESCert is like [Legacy], but encrypts certificates with 3DES,
@@ -75,6 +86,7 @@ var LegacyDESCert = &Encoder{
 	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
 	macIterations:        1,
 	encryptionIterations: 2048,
+	rand:                 rand.Reader,
 }
 
 // Passwordless encodes PKCS#12 trust stores without any encryption,
@@ -86,6 +98,7 @@ var Passwordless = &Encoder{
 	macAlgorithm:  nil,
 	certAlgorithm: nil,
 	keyAlgorithm:  nil,
+	rand:          rand.Reader,
 }
 
 // Openssl3 encodes PKCS#12 files using OpenSSL 3's default parameters.
@@ -97,6 +110,7 @@ var Openssl3 = &Encoder{
 	keyAlgorithm:         oidPBES2,
 	macIterations:        2048,
 	encryptionIterations: 2048,
+	rand:                 rand.Reader,
 }
 
 // Modern encodes PKCS#12 files using modern, secure parameters.
@@ -111,6 +125,7 @@ var Modern = &Encoder{
 	keyAlgorithm:         oidPBES2,
 	macIterations:        600000,
 	encryptionIterations: 600000,
+	rand:                 rand.Reader,
 }
 
 var (
@@ -519,12 +534,13 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 	return bags, password, nil
 }
 
-// Encode is equivalent to Legacy.Encode.  See [Encoder.Encode] and [Legacy] for details.
+// Encode is equivalent to Legacy.WithRand(rand).Encode.
+// See [Encoder.Encode] and [Legacy] for details.
 //
 // Deprecated: call Legacy.Encode to continue using legacy/weak encryption, or consider
 // one of the other encoders for better encryption.
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
-	return Legacy.Encode(rand, privateKey, certificate, caCerts, password)
+	return Legacy.WithRand(rand).Encode(privateKey, certificate, caCerts, password)
 }
 
 // Encode produces pfxData containing one private key (privateKey), an
@@ -534,16 +550,13 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // The pfxData is encrypted and authenticated with keys derived from
 // the provided password.
 //
-// The rand argument is used to provide entropy for the encryption, and
-// can be set to [crypto/rand.Reader].
-//
 // Encode emulates the behavior of OpenSSL's PKCS12_create: it creates two
 // SafeContents: one that's encrypted with the certificate encryption algorithm
 // and contains the certificates, and another that is unencrypted and contains the
 // private key shrouded with the key encryption algorithm.  The private key bag and
 // the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
 // fingerprint of the end-entity certificate.
-func (enc *Encoder) Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
 	if enc.keyAlgorithm == nil {
 		return nil, errors.New("passwordless keystores not supported")
 	}
@@ -585,7 +598,7 @@ func (enc *Encoder) Encode(rand io.Reader, privateKey interface{}, certificate *
 	keyBag.Value.Class = 2
 	keyBag.Value.Tag = 0
 	keyBag.Value.IsCompound = true
-	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(rand, privateKey, enc.keyAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
+	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(enc.rand, privateKey, enc.keyAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
 		return nil, err
 	}
 	keyBag.Attributes = append(keyBag.Attributes, localKeyIdAttr)
@@ -594,10 +607,10 @@ func (enc *Encoder) Encode(rand io.Reader, privateKey interface{}, certificate *
 	// The first SafeContents is encrypted and contains the cert bags.
 	// The second SafeContents is unencrypted and contains the shrouded key bag.
 	var authenticatedSafe [2]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(enc.rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
 		return nil, err
 	}
-	if authenticatedSafe[1], err = makeSafeContents(rand, []safeBag{keyBag}, nil, nil, 0); err != nil {
+	if authenticatedSafe[1], err = makeSafeContents(enc.rand, []safeBag{keyBag}, nil, nil, 0); err != nil {
 		return nil, err
 	}
 
@@ -610,7 +623,7 @@ func (enc *Encoder) Encode(rand io.Reader, privateKey interface{}, certificate *
 		// compute the MAC
 		pfx.MacData.Mac.Algorithm.Algorithm = enc.macAlgorithm
 		pfx.MacData.MacSalt = make([]byte, 8)
-		if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+		if _, err = enc.rand.Read(pfx.MacData.MacSalt); err != nil {
 			return nil, err
 		}
 		pfx.MacData.Iterations = enc.macIterations
@@ -633,20 +646,18 @@ func (enc *Encoder) Encode(rand io.Reader, privateKey interface{}, certificate *
 	return
 }
 
-// EncodeTrustStore is equivalent to Legacy.EncodeTrustStore.  See [Encoder.EncodeTrustStore] and [Legacy] for details.
+// EncodeTrustStore is equivalent to Legacy.WithRand(rand).EncodeTrustStore.
+// See [Encoder.EncodeTrustStore] and [Legacy] for details.
 //
 // Deprecated: call Legacy.EncodeTrustStore to continue using legacy encryption, or consider
 // one of the other encoders, such as [Passwordless].
 func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
-	return Legacy.EncodeTrustStore(rand, certs, password)
+	return Legacy.WithRand(rand).EncodeTrustStore(certs, password)
 }
 
 // EncodeTrustStore produces pfxData containing any number of CA certificates
 // (certs) to be trusted. The certificates will be marked with a special OID that
 // allow it to be used as a Java TrustStore in Java 1.8 and newer.
-//
-// The rand argument is used to provide entropy for the encryption, and
-// can be set to [crypto/rand.Reader].
 //
 // EncodeTrustStore creates a single SafeContents that's optionally encrypted
 // and contains the certificates.
@@ -656,7 +667,7 @@ func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string
 // resulting Friendly Names (Aliases) will be identical, which Java may treat as
 // the same entry when used as a Java TrustStore, e.g. with `keytool`.  To
 // customize the Friendly Names, use [EncodeTrustStoreEntries].
-func (enc *Encoder) EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
+func (enc *Encoder) EncodeTrustStore(certs []*x509.Certificate, password string) (pfxData []byte, err error) {
 	var certsWithFriendlyNames []TrustStoreEntry
 	for _, cert := range certs {
 		certsWithFriendlyNames = append(certsWithFriendlyNames, TrustStoreEntry{
@@ -664,7 +675,7 @@ func (enc *Encoder) EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, 
 			FriendlyName: cert.Subject.String(),
 		})
 	}
-	return enc.EncodeTrustStoreEntries(rand, certsWithFriendlyNames, password)
+	return enc.EncodeTrustStoreEntries(certsWithFriendlyNames, password)
 }
 
 // TrustStoreEntry represents an entry in a Java TrustStore.
@@ -673,13 +684,13 @@ type TrustStoreEntry struct {
 	FriendlyName string
 }
 
-// EncodeTrustStoreEntries is equivalent to Legacy.EncodeTrustStoreEntries.
+// EncodeTrustStoreEntries is equivalent to Legacy.WithRand(rand).EncodeTrustStoreEntries.
 // See [Encoder.EncodeTrustStoreEntries] and [Legacy] for details.
 //
 // Deprecated: call Legacy.EncodeTrustStoreEntries to continue using legacy encryption, or consider
 // one of the other encoders, such as Passwordless.
 func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
-	return Legacy.EncodeTrustStoreEntries(rand, entries, password)
+	return Legacy.WithRand(rand).EncodeTrustStoreEntries(entries, password)
 }
 
 // EncodeTrustStoreEntries produces pfxData containing any number of CA
@@ -694,12 +705,9 @@ func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password
 // resulting Friendly Names (Aliases) in the pfxData will be identical, which Java
 // may treat as the same entry when used as a Java TrustStore, e.g. with `keytool`.
 //
-// The rand argument is used to provide entropy for the encryption, and
-// can be set to [crypto/rand.Reader].
-//
 // EncodeTrustStoreEntries creates a single SafeContents that's optionally
 // encrypted and contains the certificates.
-func (enc *Encoder) EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
+func (enc *Encoder) EncodeTrustStoreEntries(entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
 	if enc.macAlgorithm == nil && enc.certAlgorithm == nil && password != "" {
 		return nil, errors.New("password must be empty")
 	}
@@ -769,7 +777,7 @@ func (enc *Encoder) EncodeTrustStoreEntries(rand io.Reader, entries []TrustStore
 	// Construct an authenticated safe with one SafeContent.
 	// The SafeContents is contains the cert bags.
 	var authenticatedSafe [1]contentInfo
-	if authenticatedSafe[0], err = makeSafeContents(rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
+	if authenticatedSafe[0], err = makeSafeContents(enc.rand, certBags, enc.certAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
 		return nil, err
 	}
 
@@ -782,7 +790,7 @@ func (enc *Encoder) EncodeTrustStoreEntries(rand io.Reader, entries []TrustStore
 		// compute the MAC
 		pfx.MacData.Mac.Algorithm.Algorithm = enc.macAlgorithm
 		pfx.MacData.MacSalt = make([]byte, 8)
-		if _, err = rand.Read(pfx.MacData.MacSalt); err != nil {
+		if _, err = enc.rand.Read(pfx.MacData.MacSalt); err != nil {
 			return nil, err
 		}
 		pfx.MacData.Iterations = enc.macIterations
