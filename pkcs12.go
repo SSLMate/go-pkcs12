@@ -92,8 +92,7 @@ var LegacyDESCert = &Encoder{
 // Passwordless encodes PKCS#12 trust stores without any encryption,
 // for compatibility with the password-less keystores introduced in Java 18.
 //
-// When using this encoder, you must specify an empty password.  Currently, you
-// can only use this encoder with EncodeTrustStore and EncodeTrustStoreEntries.
+// When using this encoder, you must specify an empty password.
 var Passwordless = &Encoder{
 	macAlgorithm:  nil,
 	certAlgorithm: nil,
@@ -387,6 +386,15 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 				caCerts = append(caCerts, certs[0])
 			}
 
+		case bag.Id.Equal(oidKeyBag):
+			if privateKey != nil {
+				err = errors.New("pkcs12: expected exactly one key bag")
+				return nil, nil, nil, err
+			}
+
+			if privateKey, err = x509.ParsePKCS8PrivateKey(bag.Value.Bytes); err != nil {
+				return nil, nil, nil, err
+			}
 		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
 			if privateKey != nil {
 				err = errors.New("pkcs12: expected exactly one key bag")
@@ -557,8 +565,8 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
 // fingerprint of the end-entity certificate.
 func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
-	if enc.keyAlgorithm == nil {
-		return nil, errors.New("passwordless keystores not supported")
+	if enc.macAlgorithm == nil && enc.certAlgorithm == nil && enc.keyAlgorithm == nil && password != "" {
+		return nil, errors.New("password must be empty")
 	}
 
 	encodedPassword, err := bmpStringZeroTerminated(password)
@@ -595,12 +603,22 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 	}
 
 	var keyBag safeBag
-	keyBag.Id = oidPKCS8ShroundedKeyBag
-	keyBag.Value.Class = 2
-	keyBag.Value.Tag = 0
-	keyBag.Value.IsCompound = true
-	if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(enc.rand, privateKey, enc.keyAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
-		return nil, err
+	if enc.keyAlgorithm == nil {
+		keyBag.Id = oidKeyBag
+		keyBag.Value.Class = 2
+		keyBag.Value.Tag = 0
+		keyBag.Value.IsCompound = true
+		if keyBag.Value.Bytes, err = x509.MarshalPKCS8PrivateKey(privateKey); err != nil {
+			return nil, err
+		}
+	} else {
+		keyBag.Id = oidPKCS8ShroundedKeyBag
+		keyBag.Value.Class = 2
+		keyBag.Value.Tag = 0
+		keyBag.Value.IsCompound = true
+		if keyBag.Value.Bytes, err = encodePkcs8ShroudedKeyBag(enc.rand, privateKey, enc.keyAlgorithm, encodedPassword, enc.encryptionIterations); err != nil {
+			return nil, err
+		}
 	}
 	keyBag.Attributes = append(keyBag.Attributes, localKeyIdAttr)
 
