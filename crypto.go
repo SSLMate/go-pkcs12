@@ -178,8 +178,8 @@ type pbes2Params struct {
 type pbkdf2Params struct {
 	Salt       asn1.RawValue
 	Iterations int
-	KeyLength  int `asn1:"optional"`
-	Prf        pkix.AlgorithmIdentifier
+	KeyLength  int                      `asn1:"optional"`
+	Prf        pkix.AlgorithmIdentifier `asn1:"optional"`
 }
 
 func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.Block, []byte, error) {
