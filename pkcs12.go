@@ -116,7 +116,7 @@ var LegacyDESCert = &Encoder{
 // Passwordless encodes PKCS#12 trust stores without any encryption,
 // for compatibility with the password-less keystores introduced in Java 18.
 //
-// When using this encoder, you must specify an empty password.
+// When using this encoder, you MUST specify an empty password.
 var Passwordless = &Encoder{
 	macAlgorithm:  nil,
 	certAlgorithm: nil,
