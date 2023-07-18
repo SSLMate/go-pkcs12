@@ -124,34 +124,39 @@ var Passwordless = &Encoder{
 	rand:          rand.Reader,
 }
 
-// Openssl3 encodes PKCS#12 files using OpenSSL 3's default parameters.
-// Private keys and certificates are encrypted using PBES2 with PBKDF2
-// (2048 iterations of HMAC-SHA-2) and AES-256-CBC.  The MAC algorithm is HMAC-SHA-2.
-var Openssl3 = &Encoder{
+// Modern2023 encodes PKCS#12 files using algorithms that are considered modern
+// as of 2023.  Private keys and certificates are encrypted using PBES2 with
+// PBKDF2-HMAC-SHA-256 and AES-256-CBC.  The MAC algorithm is HMAC-SHA-2.  These
+// are the same algorithms used by OpenSSL 3 (by default), Java 20 (by default),
+// and Windows Server 2019 (when "stronger" is used).
+//
+// Files produced with this encoder can be read by OpenSSL 1.1.1 and higher,
+// Java 12 and higher, and Windows Server 2019 and higher.
+//
+// For passwords, it is RECOMMENDED that you do one of the following:
+// 1) Use [DefaultPassword] and protect the file using other means, or
+// 2) Use a high-entropy password, such as one generated with `openssl rand -hex 16`.
+//
+// You SHOULD NOT use a lower-entropy password with this encoder because the number of KDF
+// iterations is only 2048 and doesn't provide meaningful protection against
+// brute forcing.  You can increase the number of iterations using [Encoder.WithIterations],
+// but as https://neilmadden.blog/2023/01/09/on-pbkdf2-iterations/ explains, this doesn't
+// help as much as you think.
+var Modern2023 = &Encoder{
 	macAlgorithm:         oidSHA256,
 	certAlgorithm:        oidPBES2,
 	keyAlgorithm:         oidPBES2,
 	macIterations:        2048,
 	encryptionIterations: 2048,
-	saltLen:              8,
-	rand:                 rand.Reader,
-}
-
-// Modern encodes PKCS#12 files using modern, secure parameters.
-// Private keys and certificates are encrypted using PBES2 with PBKDF2
-// (600,000 iterations of HMAC-SHA-2) and AES-256-CBC.  The MAC algorithm is HMAC-SHA-2.
-//
-// The behavior of this encoder may change in backwards-incompatible ways
-// to keep up with modern practices.
-var Modern = &Encoder{
-	macAlgorithm:         oidSHA256,
-	certAlgorithm:        oidPBES2,
-	keyAlgorithm:         oidPBES2,
-	macIterations:        600000,
-	encryptionIterations: 600000,
 	saltLen:              16,
 	rand:                 rand.Reader,
 }
+
+// Modern encodes PKCS#12 files using modern, robust parameters.
+//
+// Currently, this encoder is the same as [Modern2023], but this
+// may change in the future to keep up with modern practices.
+var Modern = Modern2023
 
 var (
 	oidDataContentType          = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 7, 1})
