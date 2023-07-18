@@ -48,6 +48,27 @@ type Encoder struct {
 	rand                 io.Reader
 }
 
+// WithIterations creates a new Encoder identical to enc except that
+// it will use the given number of KDF iterations for deriving the MAC
+// and encryption keys.
+//
+// Note that even with a large number of iterations, a weak
+// password can still be brute-forced in much less time than it would
+// take to brute-force a high-entropy encrytion key.  For the best
+// security, don't worry about the number of iterations and just
+// use a high-entropy password (e.g. one generated with `openssl rand -hex 16`).
+// See https://neilmadden.blog/2023/01/09/on-pbkdf2-iterations/ for more detail.
+//
+// Panics if iterations is less than 1.
+func (enc Encoder) WithIterations(iterations int) *Encoder {
+	if iterations < 1 {
+		panic("pkcs12: number of iterations is less than 1")
+	}
+	enc.macIterations = iterations
+	enc.encryptionIterations = iterations
+	return &enc
+}
+
 // WithRand creates a new Encoder identical to enc except that
 // it will use the given io.Reader for its random number generator
 // instead of [crypto/rand.Reader].
