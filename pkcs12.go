@@ -78,8 +78,9 @@ func (enc Encoder) WithRand(rand io.Reader) *Encoder {
 }
 
 // Legacy encodes PKCS#12 files using weak algorithms that were
-// traditionally used in PKCS#12 files, including those produced by old
-// versions of OpenSSL and this package.  Specifically, certificates
+// traditionally used in PKCS#12 files, including those produced
+// by OpenSSL before 3.0.0, go-pkcs12 before 0.3.0, and Java when
+// keystore.pkcs12.legacy is defined.  Specifically, certificates
 // are encrypted using PBE with RC2, and keys are encrypted using PBE with 3DES.
 // Encryption keys are derived with 2048 iterations of HMAC-SHA-1, and MAC
 // keys are derived with 1 iteration of HMAC-SHA-1.  The MAC algorithm is HMAC-SHA-1.
@@ -87,6 +88,10 @@ func (enc Encoder) WithRand(rand io.Reader) *Encoder {
 // Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
 // when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
 // using other means.
+//
+// By default, OpenSSL 3 can't decode PKCS#12 files created using this encoder.
+// For better compatibility, use [LegacyDESCert].  For better security, use
+// [Modern2023].
 var Legacy = &Encoder{
 	macAlgorithm:         oidSHA1,
 	certAlgorithm:        oidPBEWithSHAAnd40BitRC2CBC,
@@ -98,7 +103,8 @@ var Legacy = &Encoder{
 }
 
 // LegacyDESCert is like [Legacy], but encrypts certificates with 3DES,
-// similar to OpenSSL's -descert option.
+// similar to OpenSSL's -descert option.  As of 2023, this encoder is
+// likely to produce files that can be read by the most software.
 //
 // Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
 // when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
@@ -113,8 +119,10 @@ var LegacyDESCert = &Encoder{
 	rand:                 rand.Reader,
 }
 
-// Passwordless encodes PKCS#12 trust stores without any encryption,
-// for compatibility with the password-less keystores introduced in Java 18.
+// Passwordless encodes PKCS#12 files without any encryption or MACs.
+// A lot of software has trouble reading such files, so it's probably only
+// useful for creating Java trust stores using [Encoder.EncodeTrustStore]
+// or [Encoder.EncodeTrustStoreEntries].
 //
 // When using this encoder, you MUST specify an empty password.
 var Passwordless = &Encoder{
