@@ -200,7 +200,7 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 		return nil, nil, errors.New("pkcs12: only octet string salts are supported for pbkdf2")
 	}
 
-	// TODO: handle kdfParams.KeyLength (it's currently hard-coded to 32, which is the default for AES-256)
+	// TODO: handle kdfParams.KeyLength (it's currently hard-coded below to 32, which is the default for AES-256)
 
 	var prf func() hash.Hash
 	switch {
