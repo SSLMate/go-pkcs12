@@ -139,7 +139,7 @@ var Passwordless = &Encoder{
 //
 // You SHOULD NOT use a lower-entropy password with this encoder because the number of KDF
 // iterations is only 2048 and doesn't provide meaningful protection against
-// brute forcing.  You can increase the number of iterations using [Encoder.WithIterations],
+// brute-forcing.  You can increase the number of iterations using [Encoder.WithIterations],
 // but as https://neilmadden.blog/2023/01/09/on-pbkdf2-iterations/ explains, this doesn't
 // help as much as you think.
 var Modern2023 = &Encoder{
