@@ -160,6 +160,14 @@ var Modern2023 = &Encoder{
 	rand:                 rand.Reader,
 }
 
+// Legacy encodes PKCS#12 files using weak, legacy parameters that work in
+// a wide variety of software.
+//
+// Currently, this encoder is the same as [LegacyDES], but this
+// may change in the future if another encoder is found to provide better
+// compatibility.
+var Legacy = LegacyDES
+
 // Modern encodes PKCS#12 files using modern, robust parameters.
 //
 // Currently, this encoder is the same as [Modern2023], but this
