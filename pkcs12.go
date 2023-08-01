@@ -593,8 +593,8 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 // See [Encoder.Encode] and [LegacyRC2] for details.
 //
 // Deprecated: for the same behavior, use LegacyRC2.Encode; for
-// better compatibility, use LegacyDES.Encode; for better
-// security, use Modern.Encode or Modern2023.Encode.
+// better compatibility, use Legacy.Encode; for better
+// security, use Modern.Encode.
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
 	return LegacyRC2.WithRand(rand).Encode(privateKey, certificate, caCerts, password)
 }
