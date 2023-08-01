@@ -77,7 +77,7 @@ func (enc Encoder) WithRand(rand io.Reader) *Encoder {
 	return &enc
 }
 
-// Legacy encodes PKCS#12 files using weak algorithms that were
+// LegacyRC2 encodes PKCS#12 files using weak algorithms that were
 // traditionally used in PKCS#12 files, including those produced
 // by OpenSSL before 3.0.0, go-pkcs12 before 0.3.0, and Java when
 // keystore.pkcs12.legacy is defined.  Specifically, certificates
@@ -90,9 +90,9 @@ func (enc Encoder) WithRand(rand io.Reader) *Encoder {
 // using other means.
 //
 // By default, OpenSSL 3 can't decode PKCS#12 files created using this encoder.
-// For better compatibility, use [LegacyDESCert].  For better security, use
+// For better compatibility, use [LegacyDES].  For better security, use
 // [Modern2023].
-var Legacy = &Encoder{
+var LegacyRC2 = &Encoder{
 	macAlgorithm:         oidSHA1,
 	certAlgorithm:        oidPBEWithSHAAnd40BitRC2CBC,
 	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
@@ -102,14 +102,14 @@ var Legacy = &Encoder{
 	rand:                 rand.Reader,
 }
 
-// LegacyDESCert is like [Legacy], but encrypts certificates with 3DES,
+// LegacyDES is like [LegacyRC2], but encrypts certificates with 3DES,
 // similar to OpenSSL's -descert option.  As of 2023, this encoder is
 // likely to produce files that can be read by the most software.
 //
 // Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
 // when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
 // using other means.
-var LegacyDESCert = &Encoder{
+var LegacyDES = &Encoder{
 	macAlgorithm:         oidSHA1,
 	certAlgorithm:        oidPBEWithSHAAnd3KeyTripleDESCBC,
 	keyAlgorithm:         oidPBEWithSHAAnd3KeyTripleDESCBC,
@@ -581,14 +581,14 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 	return bags, password, nil
 }
 
-// Encode is equivalent to Legacy.WithRand(rand).Encode.
-// See [Encoder.Encode] and [Legacy] for details.
+// Encode is equivalent to LegacyRC2.WithRand(rand).Encode.
+// See [Encoder.Encode] and [LegacyRC2] for details.
 //
-// Deprecated: for the same behavior, use Legacy.Encode; for
-// better compatibility, use LegacyDESCert.Encode; for better
+// Deprecated: for the same behavior, use LegacyRC2.Encode; for
+// better compatibility, use LegacyDES.Encode; for better
 // security, use Modern.Encode or Modern2023.Encode.
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
-	return Legacy.WithRand(rand).Encode(privateKey, certificate, caCerts, password)
+	return LegacyRC2.WithRand(rand).Encode(privateKey, certificate, caCerts, password)
 }
 
 // Encode produces pfxData containing one private key (privateKey), an
@@ -705,13 +705,13 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 	return
 }
 
-// EncodeTrustStore is equivalent to Legacy.WithRand(rand).EncodeTrustStore.
-// See [Encoder.EncodeTrustStore] and [Legacy] for details.
+// EncodeTrustStore is equivalent to LegacyRC2.WithRand(rand).EncodeTrustStore.
+// See [Encoder.EncodeTrustStore] and [LegacyRC2] for details.
 //
-// Deprecated: for the same behavior, use Legacy.EncodeTrustStore; to generate passwordless trust stores,
+// Deprecated: for the same behavior, use LegacyRC2.EncodeTrustStore; to generate passwordless trust stores,
 // use Passwordless.EncodeTrustStore.
 func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
-	return Legacy.WithRand(rand).EncodeTrustStore(certs, password)
+	return LegacyRC2.WithRand(rand).EncodeTrustStore(certs, password)
 }
 
 // EncodeTrustStore produces pfxData containing any number of CA certificates
@@ -743,13 +743,13 @@ type TrustStoreEntry struct {
 	FriendlyName string
 }
 
-// EncodeTrustStoreEntries is equivalent to Legacy.WithRand(rand).EncodeTrustStoreEntries.
-// See [Encoder.EncodeTrustStoreEntries] and [Legacy] for details.
+// EncodeTrustStoreEntries is equivalent to LegacyRC2.WithRand(rand).EncodeTrustStoreEntries.
+// See [Encoder.EncodeTrustStoreEntries] and [LegacyRC2] for details.
 //
-// Deprecated: for the same behavior, use Legacy.EncodeTrustStoreEntries; to generate passwordless trust stores,
+// Deprecated: for the same behavior, use LegacyRC2.EncodeTrustStoreEntries; to generate passwordless trust stores,
 // use Passwordless.EncodeTrustStoreEntries.
 func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
-	return Legacy.WithRand(rand).EncodeTrustStoreEntries(entries, password)
+	return LegacyRC2.WithRand(rand).EncodeTrustStoreEntries(entries, password)
 }
 
 // EncodeTrustStoreEntries produces pfxData containing any number of CA
