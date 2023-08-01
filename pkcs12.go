@@ -584,8 +584,9 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 // Encode is equivalent to Legacy.WithRand(rand).Encode.
 // See [Encoder.Encode] and [Legacy] for details.
 //
-// Deprecated: call Legacy.Encode to continue using legacy/weak encryption, or consider
-// one of the other encoders for better encryption.
+// Deprecated: for the same behavior, use Legacy.Encode; for
+// better compatibility, use LegacyDESCert.Encode; for better
+// security, use Modern.Encode or Modern2023.Encode.
 func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
 	return Legacy.WithRand(rand).Encode(privateKey, certificate, caCerts, password)
 }
@@ -707,8 +708,8 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 // EncodeTrustStore is equivalent to Legacy.WithRand(rand).EncodeTrustStore.
 // See [Encoder.EncodeTrustStore] and [Legacy] for details.
 //
-// Deprecated: call Legacy.EncodeTrustStore to continue using legacy encryption, or consider
-// one of the other encoders, such as [Passwordless].
+// Deprecated: for the same behavior, use Legacy.EncodeTrustStore; to generate passwordless trust stores,
+// use Passwordless.EncodeTrustStore.
 func EncodeTrustStore(rand io.Reader, certs []*x509.Certificate, password string) (pfxData []byte, err error) {
 	return Legacy.WithRand(rand).EncodeTrustStore(certs, password)
 }
@@ -745,8 +746,8 @@ type TrustStoreEntry struct {
 // EncodeTrustStoreEntries is equivalent to Legacy.WithRand(rand).EncodeTrustStoreEntries.
 // See [Encoder.EncodeTrustStoreEntries] and [Legacy] for details.
 //
-// Deprecated: call Legacy.EncodeTrustStoreEntries to continue using legacy encryption, or consider
-// one of the other encoders, such as Passwordless.
+// Deprecated: for the same behavior, use Legacy.EncodeTrustStoreEntries; to generate passwordless trust stores,
+// use Passwordless.EncodeTrustStoreEntries.
 func EncodeTrustStoreEntries(rand io.Reader, entries []TrustStoreEntry, password string) (pfxData []byte, err error) {
 	return Legacy.WithRand(rand).EncodeTrustStoreEntries(entries, password)
 }
