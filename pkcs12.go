@@ -116,6 +116,24 @@ func (i *encryptedPrivateKeyInfo) SetData(data []byte) {
 	i.EncryptedData = data
 }
 
+type privateKeyInfo struct {
+	Version             int
+	AlgorithmIdentifier pkix.AlgorithmIdentifier
+	PrivateKey          []byte
+}
+
+func (i privateKeyInfo) Algorithm() pkix.AlgorithmIdentifier {
+	return i.AlgorithmIdentifier
+}
+
+func (i privateKeyInfo) Data() []byte {
+	return i.PrivateKey
+}
+
+func (i *privateKeyInfo) SetData(data []byte) {
+	i.PrivateKey = data
+}
+
 // PEM block types
 const (
 	certificateType = "CERTIFICATE"
@@ -305,6 +323,17 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 			if privateKey, err = decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPassword); err != nil {
 				return nil, nil, nil, err
 			}
+
+		case bag.Id.Equal(oidKeyBag):
+			if privateKey != nil {
+				err = errors.New("pkcs12: expected exactly one key bag")
+				return nil, nil, nil, err
+			}
+
+			if privateKey, err = decodePkcsKeyBag(bag.Value.Bytes); err != nil {
+				return nil, nil, nil, err
+			}
+
 		}
 	}
 

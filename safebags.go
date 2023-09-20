@@ -17,11 +17,37 @@ var (
 	oidCertTypeX509Certificate = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 9, 22, 1})
 	oidPKCS8ShroundedKeyBag    = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 2})
 	oidCertBag                 = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 3})
+	oidKeyBag                  = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 1})
+
+	oidPublicKeyRSA  = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
+	oidPublicKeyPKS8 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 8}
 )
 
 type certBag struct {
 	Id   asn1.ObjectIdentifier
 	Data []byte `asn1:"tag:0,explicit"`
+}
+
+func decodePkcsKeyBag(asn1Data []byte) (privateKey interface{}, err error) {
+	pkinfo := new(privateKeyInfo)
+	if err = unmarshal(asn1Data, pkinfo); err != nil {
+		return nil, errors.New("pkcs12: error decoding PKCS#8 private key bag: " + err.Error())
+	}
+
+	switch {
+	case pkinfo.AlgorithmIdentifier.Algorithm.Equal(oidPublicKeyRSA):
+		if privateKey, err = x509.ParsePKCS1PrivateKey(pkinfo.Data()); err != nil {
+			return nil, errors.New("pkcs12: failed to parse PKCS#1: " + err.Error())
+		}
+	case pkinfo.AlgorithmIdentifier.Algorithm.Equal(oidPublicKeyPKS8):
+		if privateKey, err = x509.ParsePKCS8PrivateKey(pkinfo.Data()); err != nil {
+			return nil, errors.New("pkcs12: error parsing PKCS#8 private key: " + err.Error())
+		}
+	default:
+		return nil, errors.New("pkcs12: unknown public key algorithm " + pkinfo.AlgorithmIdentifier.Algorithm.String())
+	}
+
+	return privateKey, nil
 }
 
 func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{}, err error) {
