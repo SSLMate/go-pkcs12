@@ -270,7 +270,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 		return nil, nil, nil, err
 	}
 
-	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2)
+	bags, encodedPassword, err := getSafeContentsInRange(pfxData, encodedPassword, 1, 2)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -363,6 +363,10 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 }
 
 func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBag, updatedPassword []byte, err error) {
+	return getSafeContentsInRange(p12Data, password, expectedItems, expectedItems)
+}
+
+func getSafeContentsInRange(p12Data, password []byte, expectedItemsMin int, expectedItemsMax int) (bags []safeBag, updatedPassword []byte, err error) {
 	pfx := new(pfxPdu)
 	if err := unmarshal(p12Data, pfx); err != nil {
 		return nil, nil, errors.New("pkcs12: error reading P12 data: " + err.Error())
@@ -403,8 +407,11 @@ func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBa
 		return nil, nil, err
 	}
 
-	if len(authenticatedSafe) != expectedItems {
-		return nil, nil, NotImplementedError(fmt.Sprintf("expected exactly %d items in the authenticated safe", expectedItems))
+	if len(authenticatedSafe) < expectedItemsMin || len(authenticatedSafe) > expectedItemsMax {
+		if expectedItemsMin == expectedItemsMax {
+			return nil, nil, NotImplementedError(fmt.Sprintf("expected exactly %d items in the authenticated safe", expectedItemsMin))
+		}
+		return nil, nil, NotImplementedError(fmt.Sprintf("expected between %d and %d items in the authenticated safe", expectedItemsMin, expectedItemsMax))
 	}
 
 	for _, ci := range authenticatedSafe {
