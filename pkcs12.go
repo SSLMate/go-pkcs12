@@ -292,7 +292,7 @@ func ToPEM(pfxData []byte, password string) ([]*pem.Block, error) {
 		return nil, ErrIncorrectPassword
 	}
 
-	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2)
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 2, 2)
 
 	if err != nil {
 		return nil, err
@@ -415,7 +415,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 		return nil, nil, nil, err
 	}
 
-	bags, encodedPassword, err := getSafeContentsInRange(pfxData, encodedPassword, 1, 2)
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 1, 2)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -484,7 +484,7 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 		return nil, err
 	}
 
-	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 1)
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 1, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -519,11 +519,7 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 	return
 }
 
-func getSafeContents(p12Data, password []byte, expectedItems int) (bags []safeBag, updatedPassword []byte, err error) {
-	return getSafeContentsInRange(p12Data, password, expectedItems, expectedItems)
-}
-
-func getSafeContentsInRange(p12Data, password []byte, expectedItemsMin int, expectedItemsMax int) (bags []safeBag, updatedPassword []byte, err error) {
+func getSafeContents(p12Data, password []byte, expectedItemsMin int, expectedItemsMax int) (bags []safeBag, updatedPassword []byte, err error) {
 	pfx := new(pfxPdu)
 	if err := unmarshal(p12Data, pfx); err != nil {
 		return nil, nil, errors.New("pkcs12: error reading P12 data: " + err.Error())
