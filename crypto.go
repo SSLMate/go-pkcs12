@@ -24,6 +24,7 @@ import (
 
 var (
 	oidPBEWithSHAAnd3KeyTripleDESCBC = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 1, 3})
+	oidPBEWithSHAAnd128BitRC2CBC     = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 1, 5})
 	oidPBEWithSHAAnd40BitRC2CBC      = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 1, 6})
 	oidPBES2                         = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 13})
 	oidPBKDF2                        = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 12})
@@ -56,6 +57,20 @@ func (shaWithTripleDESCBC) deriveIV(salt, password []byte, iterations int) []byt
 	return pbkdf(sha1Sum, 20, 64, salt, password, iterations, 2, 8)
 }
 
+type shaWith128BitRC2CBC struct{}
+
+func (shaWith128BitRC2CBC) create(key []byte) (cipher.Block, error) {
+	return rc2.New(key, len(key)*8)
+}
+
+func (shaWith128BitRC2CBC) deriveKey(salt, password []byte, iterations int) []byte {
+	return pbkdf(sha1Sum, 20, 64, salt, password, iterations, 1, 16)
+}
+
+func (shaWith128BitRC2CBC) deriveIV(salt, password []byte, iterations int) []byte {
+	return pbkdf(sha1Sum, 20, 64, salt, password, iterations, 2, 8)
+}
+
 type shaWith40BitRC2CBC struct{}
 
 func (shaWith40BitRC2CBC) create(key []byte) (cipher.Block, error) {
@@ -81,6 +96,8 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 	switch {
 	case algorithm.Algorithm.Equal(oidPBEWithSHAAnd3KeyTripleDESCBC):
 		cipherType = shaWithTripleDESCBC{}
+	case algorithm.Algorithm.Equal(oidPBEWithSHAAnd128BitRC2CBC):
+		cipherType = shaWith128BitRC2CBC{}
 	case algorithm.Algorithm.Equal(oidPBEWithSHAAnd40BitRC2CBC):
 		cipherType = shaWith40BitRC2CBC{}
 	case algorithm.Algorithm.Equal(oidPBES2):
