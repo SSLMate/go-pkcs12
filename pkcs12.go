@@ -81,9 +81,9 @@ func (enc Encoder) WithRand(rand io.Reader) *Encoder {
 // traditionally used in PKCS#12 files, including those produced
 // by OpenSSL before 3.0.0, go-pkcs12 before 0.3.0, and Java when
 // keystore.pkcs12.legacy is defined.  Specifically, certificates
-// are encrypted using PBE with RC2, and keys are encrypted using PBE with 3DES.
-// Encryption keys are derived with 2048 iterations of HMAC-SHA-1, and MAC
-// keys are derived with 1 iteration of HMAC-SHA-1.  The MAC algorithm is HMAC-SHA-1.
+// are encrypted using PBE with RC2, and keys are encrypted using PBE
+// with 3DES, using keys derived with 2048 iterations of HMAC-SHA-1.
+// MACs use HMAC-SHA-1 with keys derived with 1 iteration of HMAC-SHA-1.
 //
 // Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
 // when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
@@ -102,13 +102,17 @@ var LegacyRC2 = &Encoder{
 	rand:                 rand.Reader,
 }
 
-// LegacyDES is like [LegacyRC2], but encrypts certificates with 3DES,
-// similar to OpenSSL's -descert option.  As of 2023, this encoder is
+// LegacyDES encodes PKCS#12 files using weak algorithms that are
+// supported by a wide variety of software.  Certificates and keys
+// are encrypted using PBE with 3DES using keys derived with 2048
+// iterations of HMAC-SHA-1.  MACs use HMAC-SHA-1 with keys derived
+// with 1 iteration of HMAC-SHA-1.  These are the same parameters
+// used by OpenSSL's -descert option.  As of 2023, this encoder is
 // likely to produce files that can be read by the most software.
 //
 // Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
 // when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
-// using other means.
+// using other means.  To create more secure PKCS#12 files, use [Modern2023].
 var LegacyDES = &Encoder{
 	macAlgorithm:         oidSHA1,
 	certAlgorithm:        oidPBEWithSHAAnd3KeyTripleDESCBC,
@@ -166,6 +170,10 @@ var Modern2023 = &Encoder{
 // Currently, this encoder is the same as [LegacyDES], but this
 // may change in the future if another encoder is found to provide better
 // compatibility.
+//
+// Due to the weak encryption, it is STRONGLY RECOMMENDED that you use [DefaultPassword]
+// when encoding PKCS#12 files using this encoder, and protect the PKCS#12 files
+// using other means.
 var Legacy = LegacyDES
 
 // Modern encodes PKCS#12 files using modern, robust parameters.
