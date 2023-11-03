@@ -30,6 +30,8 @@ var (
 	oidPBKDF2                        = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 5, 12})
 	oidHmacWithSHA1                  = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 7})
 	oidHmacWithSHA256                = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 2, 9})
+	oidAES128CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 2})
+	oidAES192CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 22})
 	oidAES256CBC                     = asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 1, 42})
 )
 
@@ -164,6 +166,7 @@ func pbDecrypt(info decryptable, password []byte) (decrypted []byte, err error) 
 	if len(decrypted) < psLen {
 		return nil, ErrDecryption
 	}
+
 	ps := decrypted[len(decrypted)-psLen:]
 	decrypted = decrypted[:len(decrypted)-psLen]
 	if bytes.Compare(ps, bytes.Repeat([]byte{byte(psLen)}, psLen)) != 0 {
@@ -229,19 +232,24 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 		prf = sha1.New
 	}
 
-	key := pbkdf2.Key(password, kdfParams.Salt.Bytes, kdfParams.Iterations, 32, prf)
-	iv := params.EncryptionScheme.Parameters.Bytes
-
-	var block cipher.Block
+	var keyLen int
 	switch {
 	case params.EncryptionScheme.Algorithm.Equal(oidAES256CBC):
-		b, err := aes.NewCipher(key)
-		if err != nil {
-			return nil, nil, err
-		}
-		block = b
+		keyLen = 32
+	case params.EncryptionScheme.Algorithm.Equal(oidAES192CBC):
+		keyLen = 24
+	case params.EncryptionScheme.Algorithm.Equal(oidAES128CBC):
+		keyLen = 16
 	default:
 		return nil, nil, NotImplementedError("pbes2 algorithm " + params.EncryptionScheme.Algorithm.String() + " is not supported")
+	}
+
+	key := pbkdf2.Key(password, kdfParams.Salt.Bytes, kdfParams.Iterations, keyLen, prf)
+	iv := params.EncryptionScheme.Parameters.Bytes
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, nil, err
 	}
 	return block, iv, nil
 }
