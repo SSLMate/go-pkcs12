@@ -228,6 +228,8 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 		prf = sha1.New
 	case kdfParams.Prf.Algorithm.Equal(asn1.ObjectIdentifier([]int{})):
 		prf = sha1.New
+	default:
+		return nil, nil, NotImplementedError("pbes2 prf " + kdfParams.Prf.Algorithm.String() + " is not supported")
 	}
 
 	var keyLen int
