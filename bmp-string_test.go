@@ -11,10 +11,10 @@ import (
 )
 
 var bmpStringTests = []struct {
-	in          string
-	expectedHex string
-	zeroTerminated  bool
-	shouldFail  bool
+	in             string
+	expectedHex    string
+	zeroTerminated bool
+	shouldFail     bool
 }{
 	{"", "0000", true, false},
 	{"", "", false, false},
@@ -38,7 +38,7 @@ func TestBMPString(t *testing.T) {
 
 		var out []byte
 
-		if(test.zeroTerminated) {
+		if test.zeroTerminated {
 			out, err = bmpStringZeroTerminated(test.in)
 		} else {
 			out, err = bmpString(test.in)

@@ -176,25 +176,25 @@ func pbDecrypt(info decryptable, password []byte) (decrypted []byte, err error) 
 	return
 }
 
-// PBES2-params ::= SEQUENCE {
-// 	keyDerivationFunc AlgorithmIdentifier {{PBES2-KDFs}},
-// 	encryptionScheme AlgorithmIdentifier {{PBES2-Encs}}
-// }
+//	PBES2-params ::= SEQUENCE {
+//		keyDerivationFunc AlgorithmIdentifier {{PBES2-KDFs}},
+//		encryptionScheme AlgorithmIdentifier {{PBES2-Encs}}
+//	}
 type pbes2Params struct {
 	Kdf              pkix.AlgorithmIdentifier
 	EncryptionScheme pkix.AlgorithmIdentifier
 }
 
-// PBKDF2-params ::= SEQUENCE {
-//     salt CHOICE {
-//       specified OCTET STRING,
-//       otherSource AlgorithmIdentifier {{PBKDF2-SaltSources}}
-//     },
-//     iterationCount INTEGER (1..MAX),
-//     keyLength INTEGER (1..MAX) OPTIONAL,
-//     prf AlgorithmIdentifier {{PBKDF2-PRFs}} DEFAULT
-//     algid-hmacWithSHA1
-// }
+//	PBKDF2-params ::= SEQUENCE {
+//	    salt CHOICE {
+//	      specified OCTET STRING,
+//	      otherSource AlgorithmIdentifier {{PBKDF2-SaltSources}}
+//	    },
+//	    iterationCount INTEGER (1..MAX),
+//	    keyLength INTEGER (1..MAX) OPTIONAL,
+//	    prf AlgorithmIdentifier {{PBKDF2-PRFs}} DEFAULT
+//	    algid-hmacWithSHA1
+//	}
 type pbkdf2Params struct {
 	Salt       asn1.RawValue
 	Iterations int
