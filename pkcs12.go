@@ -38,6 +38,7 @@ const DefaultPassword = "changeit"
 
 // An Encoder contains methods for encoding PKCS#12 files.  This package
 // defines several different Encoders with different parameters.
+// An Encoder is safe for concurrent use by multiple goroutines.
 type Encoder struct {
 	macAlgorithm         asn1.ObjectIdentifier
 	certAlgorithm        asn1.ObjectIdentifier
