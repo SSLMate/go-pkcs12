@@ -47,7 +47,7 @@ func doMac(macData *macData, message, password []byte) ([]byte, error) {
 		hFn = sha512.New
 		key = pbkdf(sha512Sum, 64, 128, macData.MacSalt, password, macData.Iterations, 3, 64)
 	default:
-		return nil, NotImplementedError("unknown digest algorithm: " + macData.Mac.Algorithm.Algorithm.String())
+		return nil, NotImplementedError("MAC digest algorithm not supported: " + macData.Mac.Algorithm.Algorithm.String())
 	}
 
 	mac := hmac.New(hFn, key)

@@ -116,7 +116,7 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 		utf8Password := []byte(originalPassword)
 		return pbes2CipherFor(algorithm, utf8Password)
 	default:
-		return nil, nil, NotImplementedError("algorithm " + algorithm.Algorithm.String() + " is not supported")
+		return nil, nil, NotImplementedError("pbe algorithm " + algorithm.Algorithm.String() + " is not supported")
 	}
 
 	var params pbeParams
@@ -211,7 +211,7 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 	}
 
 	if !params.Kdf.Algorithm.Equal(oidPBKDF2) {
-		return nil, nil, NotImplementedError("kdf algorithm " + params.Kdf.Algorithm.String() + " is not supported")
+		return nil, nil, NotImplementedError("pbes2 kdf algorithm " + params.Kdf.Algorithm.String() + " is not supported")
 	}
 
 	var kdfParams pbkdf2Params
@@ -219,7 +219,7 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 		return nil, nil, err
 	}
 	if kdfParams.Salt.Tag != asn1.TagOctetString {
-		return nil, nil, errors.New("pkcs12: only octet string salts are supported for pbkdf2")
+		return nil, nil, NotImplementedError("only octet string salts are supported for pbes2/pbkdf2")
 	}
 
 	var prf func() hash.Hash
