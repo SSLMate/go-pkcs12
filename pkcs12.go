@@ -18,6 +18,8 @@
 package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
+	"bytes"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
@@ -392,6 +394,58 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 	return key, value, nil
 }
 
+func extractFriendlyname(bag safeBag) (string, error) {
+	for _, attribute := range bag.Attributes {
+		if attribute.Id.Equal(oidFriendlyName) {
+			if err := unmarshal(attribute.Value.Bytes, &attribute.Value); err != nil {
+				return "", err
+			}
+			value, err := decodeBMPString(attribute.Value.Bytes)
+			if err != nil {
+				return "", err
+			}
+			return value, nil
+		}
+	}
+	return "", errors.New("pkcs12: friendlyName attribute not found")
+}
+
+func verifyKeyCert(privateKey crypto.PrivateKey, certificate *x509.Certificate) bool {
+	pk, ok := privateKey.(interface {
+		Public() crypto.PublicKey
+	})
+	if !ok {
+		return false
+	}
+	publicKey, ok := pk.Public().(interface {
+		Equal(crypto.PublicKey) bool
+	})
+	if !ok {
+		return false
+	}
+	if publicKey.Equal(certificate.PublicKey) {
+		return true
+	}
+	return false
+}
+
+func issuedBy(subject, issuer *x509.Certificate) bool {
+	return bytes.Equal(subject.RawIssuer, issuer.RawSubject) && issuer.CheckSignature(subject.SignatureAlgorithm, subject.RawTBSCertificate, subject.Signature) == nil
+}
+
+func buildChain(leaf *x509.Certificate, certs []*x509.Certificate) (certChain []*x509.Certificate) {
+	if len(certs) <= 1 {
+		return certs
+	}
+	for idx, cert := range certs {
+		if issuedBy(leaf, cert) {
+			certChain = append(certChain, cert)
+			certChain = append(certChain, buildChain(cert, certs[idx+1:])...)
+		}
+	}
+	return
+}
+
 // Decode extracts a certificate and private key from pfxData, which must be a DER-encoded PKCS#12 file. This function
 // assumes that there is only one certificate and only one private key in the
 // pfxData.  Since PKCS#12 files often contain more than one certificate, you
@@ -468,6 +522,106 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 	}
 	if privateKey == nil {
 		return nil, nil, nil, errors.New("pkcs12: private key missing")
+	}
+
+	return
+}
+
+// A Chain represents a private key, a leaf certificate matching it, and the CA certificate chain.
+// It also stores the friendlyName of the private key.
+type Chain struct {
+	FriendlyName string
+	PrivateKey   crypto.PrivateKey
+	Leaf         *x509.Certificate
+	CACerts      []*x509.Certificate
+}
+
+// DecodeChains extracts Chains from pfxData, which must be a DER-encoded PKCS#12 file. The function
+// assumes there is at least one private key with a friendlyName attribute and at least one matching certificate.
+// The function ignores certificates that do not match any private keys, or are not part of any CA certificates chain.
+func DecodeChains(pfxData []byte, password string) (chains []Chain, err error) {
+	encodedPassword, err := bmpStringZeroTerminated(password)
+	if err != nil {
+		return nil, err
+	}
+
+	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 1, 2)
+	if err != nil {
+		return nil, err
+	}
+
+	// extract all bags
+	privateKeysAll := make(map[string]crypto.PrivateKey)
+	var certsAll []*x509.Certificate // do not store cert alias
+	for _, bag := range bags {
+		friendlyName, err := extractFriendlyname(bag)
+		if err != nil {
+			friendlyName = ""
+		}
+		switch {
+		case bag.Id.Equal(oidCertBag):
+			certsData, err := decodeCertBag(bag.Value.Bytes)
+			if err != nil {
+				return nil, err
+			}
+			certs, err := x509.ParseCertificates(certsData)
+			if err != nil {
+				return nil, err
+			}
+			if len(certs) != 1 {
+				err = errors.New("pkcs12: expected exactly one certificate in the certBag")
+				return nil, err
+			}
+			certsAll = append(certsAll, certs[0])
+		case bag.Id.Equal(oidKeyBag):
+			privateKey, err := x509.ParsePKCS8PrivateKey(bag.Value.Bytes)
+			if err != nil {
+				return nil, err
+			}
+			pk, ok := privateKey.(crypto.PrivateKey)
+			if !ok {
+				return nil, fmt.Errorf("pkcs12: failed to get private key")
+			}
+			privateKeysAll[friendlyName] = pk
+		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
+			privateKey, err := decodePkcs8ShroudedKeyBag(bag.Value.Bytes, encodedPassword)
+			if err != nil {
+				return nil, err
+			}
+			pk, ok := privateKey.(crypto.PrivateKey)
+			if !ok {
+				return nil, fmt.Errorf("pkcs12: failed to get private key")
+			}
+			privateKeysAll[friendlyName] = pk
+		}
+	}
+	for pkAlias, pk := range privateKeysAll {
+		// initialize chains and match private keys to leaf certificates
+		chain := Chain{
+			FriendlyName: pkAlias,
+			PrivateKey:   pk,
+		}
+		var idx int
+		for idx, cert := range certsAll {
+			_ = idx
+			if verifyKeyCert(pk, cert) {
+				chain.Leaf = cert
+				break
+			}
+		}
+		// recursively build a chain for leaf certificate
+		caCerts := buildChain(chain.Leaf, append(certsAll[:idx], certsAll[idx+1:]...))
+		chain.CACerts = caCerts
+		chains = append(chains, chain)
+	}
+	// verify chains
+	for _, chain := range chains {
+		if chain.PrivateKey == nil {
+			return nil, errors.New("pkcs12: private key missing")
+		}
+		if chain.Leaf == nil {
+			return nil, errors.New("pkcs12: certificate missing")
+		}
 	}
 
 	return
