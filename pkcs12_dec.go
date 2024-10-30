@@ -161,38 +161,68 @@ func DecodeChains(pfxData []byte, password string) (chains []CertificateChain, e
 				return nil, fmt.Errorf("pkcs12: failed to get private key")
 			}
 			privateKeysAll[friendlyName] = pk
+		default:
+			// TODO: bag types: crlBag, secretBag, safeContentsBag aren't supported yet, should signal a warning
 		}
 	}
 	for pkAlias, pk := range privateKeysAll {
-		// initialize chains and match private keys to leaf certificates
 		chain := CertificateChain{
 			FriendlyName: pkAlias,
 			PrivateKey:   pk,
 		}
-		var idx int
-		for idx, cert := range certsAll {
-			_ = idx
-			if verifyKeyCert(pk, cert) {
+		// find matching private keys to leaf certificates
+		var leafCertificate *x509.Certificate
+		for i, cert := range certsAll {
+			if certificateMatchesToKey(pk, cert) {
 				chain.LeafCertificate = cert
+				leafCertificate = cert
+				certsAll = removeCert(certsAll, i)
 				break
 			}
 		}
-		// recursively build a chain for leaf certificate
-		caCerts := buildChain(chain.LeafCertificate, append(certsAll[:idx], certsAll[idx+1:]...))
-		chain.CACertificates = caCerts
+		// build the chain, from remaining, un-ordered certificates
+		for leafCertificate != nil && hasIssuer(leafCertificate) && !selfSigned(leafCertificate) {
+			foundIssuer := false
+			for i, issuerCert := range certsAll {
+				if issuedBy(leafCertificate, issuerCert) {
+					chain.CACertificates = append(chain.CACertificates, issuerCert)
+					leafCertificate = issuerCert
+					certsAll = removeCert(certsAll, i)
+					foundIssuer = true
+					break
+				}
+			}
+			if !foundIssuer {
+				break // incomplete chain, no reason to error
+			}
+		}
 		chains = append(chains, chain)
 	}
 	// verify chains
 	for _, chain := range chains {
-		if chain.PrivateKey == nil {
-			return nil, errors.New("pkcs12: private key missing")
-		}
 		if chain.LeafCertificate == nil {
-			return nil, errors.New("pkcs12: certificate missing")
+			return nil, errors.New("pkcs12: leaf certificate missing")
 		}
 	}
 
 	return
+}
+
+func removeCert(slice []*x509.Certificate, s int) []*x509.Certificate {
+	return append(slice[:s], slice[s+1:]...)
+}
+
+func selfSigned(cert *x509.Certificate) bool {
+	return issuedBy(cert, cert)
+}
+
+func issuedBy(subject, issuer *x509.Certificate) bool {
+	return bytes.Equal(subject.RawIssuer, issuer.RawSubject) &&
+		issuer.CheckSignature(subject.SignatureAlgorithm, subject.RawTBSCertificate, subject.Signature) == nil
+}
+
+func hasIssuer(cert *x509.Certificate) bool {
+	return len(cert.RawIssuer) > 0
 }
 
 // DecodeTrustStore extracts the certificates from pfxData, which must be a DER-encoded
@@ -272,7 +302,7 @@ func extractFriendlyname(bag safeBag) (string, error) {
 	return "", errors.New("pkcs12: friendlyName attribute not found")
 }
 
-func verifyKeyCert(privateKey crypto.PrivateKey, certificate *x509.Certificate) bool {
+func certificateMatchesToKey(privateKey crypto.PrivateKey, certificate *x509.Certificate) bool {
 	pk, ok := privateKey.(interface {
 		Public() crypto.PublicKey
 	})
@@ -289,23 +319,6 @@ func verifyKeyCert(privateKey crypto.PrivateKey, certificate *x509.Certificate) 
 		return true
 	}
 	return false
-}
-
-func issuedBy(subject, issuer *x509.Certificate) bool {
-	return bytes.Equal(subject.RawIssuer, issuer.RawSubject) && issuer.CheckSignature(subject.SignatureAlgorithm, subject.RawTBSCertificate, subject.Signature) == nil
-}
-
-func buildChain(leaf *x509.Certificate, certs []*x509.Certificate) (certChain []*x509.Certificate) {
-	if len(certs) <= 1 {
-		return certs
-	}
-	for idx, cert := range certs {
-		if issuedBy(leaf, cert) {
-			certChain = append(certChain, cert)
-			certChain = append(certChain, buildChain(cert, certs[idx+1:])...)
-		}
-	}
-	return
 }
 
 func getSafeContents(p12Data, password []byte, expectedItemsMin int, expectedItemsMax int) (bags []safeBag, updatedPassword []byte, err error) {

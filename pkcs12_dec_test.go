@@ -15,7 +15,7 @@ var fileExampleComAesCbc192 []byte
 //go:embed test-data/ad_standalone_com_aescbc256.p12
 var fileAdStandaloneComAesCbc256 []byte
 
-var decodeChainTests = []struct {
+var certificateTests = []struct {
 	testName        string
 	pfxData         []byte
 	password        string
@@ -46,7 +46,7 @@ var decodeChainTests = []struct {
 }
 
 func Test_DecodeChain_PBES2(t *testing.T) {
-	for _, tt := range decodeChainTests {
+	for _, tt := range certificateTests {
 		t.Run(tt.testName, func(t *testing.T) {
 			pk, cert, caCerts, err := DecodeChain(tt.pfxData, tt.password)
 			if err != nil {
@@ -73,33 +73,59 @@ func Test_DecodeChain_PBES2(t *testing.T) {
 //go:embed test-data/example_signed_certificates_chain.p12
 var fileExampleSignedCertificatesChain []byte
 
-func Test_DecodeChains(t *testing.T) {
+func Test_DecodeChains_with_private_key(t *testing.T) {
 	tests := []struct {
-		testName string
-		pfxData  []byte
-		password string
+		testName      string
+		pfxData       []byte
+		password      string
+		friendlyNames []string
+		chainLengths  []int
 	}{
 		{
 			testName: "example_signed_certificates_chain.p12",
 			pfxData:  fileExampleSignedCertificatesChain,
 			password: "password",
+			friendlyNames: []string{
+				"example-ca",
+				"example-intermediate-ca (example-ca)",
+				"example-server (example-intermediate-ca)",
+			},
+			chainLengths: []int{0, 1, 2},
 		},
 	}
-	// testing special pfx file with 3 keys
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
-			certs, err := DecodeChains(tt.pfxData, tt.password)
+			chains, err := DecodeChains(tt.pfxData, tt.password)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(certs) != 3 {
-				t.Errorf("unexpected # of caCerts: got %d, want 3", len(certs))
+			if len(chains) != 3 {
+				t.Errorf("unexpected # of chains: got %d, want 3", len(chains))
+			}
+			for i, chain := range chains {
+				expectedFriendlyName := tt.friendlyNames[i]
+				if chain.FriendlyName != expectedFriendlyName {
+					t.Errorf("unexpected private key friendly name, got '%s', want '%s'", chain.FriendlyName, expectedFriendlyName)
+				}
+				pk := chain.PrivateKey
+				rsaPk, ok := pk.(*rsa.PrivateKey)
+				if !ok {
+					t.Error("could not cast to rsa private key")
+				}
+				if !rsaPk.PublicKey.Equal(chain.LeafCertificate.PublicKey) {
+					t.Error("public key embedded in private key not equal to public key of certificate")
+				}
+				if len(chain.CACertificates) != tt.chainLengths[i] {
+					t.Errorf("unexpected # of caCerts: got %d, want %d", len(chain.CACertificates), tt.chainLengths[i])
+				}
 			}
 		})
 	}
+}
 
+func Test_DecodeChains_with_certificate_files(t *testing.T) {
 	// also the other pfx files should work
-	for _, tt := range decodeChainTests {
+	for _, tt := range certificateTests {
 		t.Run(tt.testName, func(t *testing.T) {
 			certs, err := DecodeChains(tt.pfxData, tt.password)
 			if err != nil {
