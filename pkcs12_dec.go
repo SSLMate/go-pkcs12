@@ -12,6 +12,7 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"sort"
 )
 
 // A CertificateChain represents a private key, a leaf certificate matching it, and the CA certificate chain.
@@ -204,6 +205,9 @@ func DecodeChains(pfxData []byte, password string) (chains []CertificateChain, e
 			return nil, errors.New("pkcs12: leaf certificate missing")
 		}
 	}
+
+	// sort, to make the result predictable
+	sort.Slice(chains, func(i, j int) bool { return chains[i].FriendlyName < chains[j].FriendlyName })
 
 	return
 }
