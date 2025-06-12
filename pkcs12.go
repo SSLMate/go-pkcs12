@@ -625,6 +625,15 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
 // fingerprint of the end-entity certificate.
 func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+	return enc.EncodeWithFriendlyName("", privateKey, certificate, caCerts, password)
+}
+
+// EncodeWithFriendlyName produces pfxData containing one private key (privateKey), an
+// end-entity certificate (certificate), and any number of CA certificates
+// (caCerts) with a friendlyName.
+//
+// If friendlyName is not empty, it will be used as the friendly name of the private key bag.
+func (enc *Encoder) EncodeWithFriendlyName(friendlyName string, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
 	if enc.macAlgorithm == nil && enc.certAlgorithm == nil && enc.keyAlgorithm == nil && password != "" {
 		return nil, errors.New("pkcs12: password must be empty")
 	}
@@ -646,9 +655,38 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 	if localKeyIdAttr.Value.Bytes, err = asn1.Marshal(certFingerprint[:]); err != nil {
 		return nil, err
 	}
+	pkcs12Attributes := []pkcs12Attribute{localKeyIdAttr}
+
+	if len(friendlyName) != 0 {
+		bmpFriendlyName, err := bmpString(friendlyName)
+		if err != nil {
+			return nil, err
+		}
+
+		encodedFriendlyName, err := asn1.Marshal(asn1.RawValue{
+			Class:      0,
+			Tag:        30,
+			IsCompound: false,
+			Bytes:      bmpFriendlyName,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		friendlyNameAttr := pkcs12Attribute{
+			Id: oidFriendlyName,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17,
+				IsCompound: true,
+				Bytes:      encodedFriendlyName,
+			},
+		}
+		pkcs12Attributes = append(pkcs12Attributes, friendlyNameAttr)
+	}
 
 	var certBags []safeBag
-	if certBag, err := makeCertBag(certificate.Raw, []pkcs12Attribute{localKeyIdAttr}); err != nil {
+	if certBag, err := makeCertBag(certificate.Raw, pkcs12Attributes); err != nil {
 		return nil, err
 	} else {
 		certBags = append(certBags, *certBag)
@@ -680,7 +718,7 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 			return nil, err
 		}
 	}
-	keyBag.Attributes = append(keyBag.Attributes, localKeyIdAttr)
+	keyBag.Attributes = append(keyBag.Attributes, pkcs12Attributes...)
 
 	// Construct an authenticated safe with two SafeContents.
 	// The first SafeContents is encrypted and contains the cert bags.
