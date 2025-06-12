@@ -62,6 +62,60 @@ func TestPEM(t *testing.T) {
 	}
 }
 
+func TestEncoder_EncodeWithFriendlyName(t *testing.T) {
+	for commonName, base64P12 := range testdata {
+		p12, _ := base64.StdEncoding.DecodeString(base64P12)
+
+		key, certificate, certs, err := DecodeChain(p12, "")
+		if err != nil {
+			t.Fatalf("error while reading: %s", err)
+		}
+
+		pfxData, err := Modern.EncodeWithFriendlyName(commonName, key, certificate, certs, "test")
+		if err != nil {
+			t.Errorf("err while encoding as P12: %v", err)
+		}
+
+		blocks, err := ToPEM(pfxData, "test")
+		if err != nil {
+			t.Errorf("err while reading P12 bask to PEM: %v", err)
+		}
+
+		for _, p := range blocks {
+			if commonName != p.Headers["friendlyName"] {
+				t.Fatalf("Friendly name expected %s got %s", commonName, p.Headers["friendlyName"])
+			}
+		}
+	}
+}
+
+func TestEncoder_EncodeWithoutFriendlyName(t *testing.T) {
+	for _, base64P12 := range testdata {
+		p12, _ := base64.StdEncoding.DecodeString(base64P12)
+
+		key, certificate, certs, err := DecodeChain(p12, "")
+		if err != nil {
+			t.Fatalf("error while reading: %s", err)
+		}
+
+		pfxData, err := Modern.Encode(key, certificate, certs, "test")
+		if err != nil {
+			t.Errorf("err while encoding as P12: %v", err)
+		}
+
+		blocks, err := ToPEM(pfxData, "test")
+		if err != nil {
+			t.Errorf("err while reading P12 bask to PEM: %v", err)
+		}
+
+		for _, p := range blocks {
+			if _, ok := p.Headers["friendlyName"]; ok {
+				t.Fatalf("Friendly name not expected but got %s", p.Headers["friendlyName"])
+			}
+		}
+	}
+}
+
 func TestTrustStore(t *testing.T) {
 	for commonName, base64P12 := range testdata {
 		p12, _ := base64.StdEncoding.DecodeString(base64P12)
