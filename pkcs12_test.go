@@ -170,41 +170,16 @@ func TestPBES2_AES192CBC(t *testing.T) {
 	}
 }
 
-func TestEncodeWithFriendlyName(t *testing.T) {
-	// Generate a test key and certificate
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a simple test certificate
-	certDER := []byte{} // We'll use one from testdata
-	for _, base64P12 := range testdata {
-		p12, _ := base64.StdEncoding.DecodeString(base64P12)
-		_, cert, err := Decode(p12, "")
-		if err == nil {
-			certDER = cert.Raw
-			break
-		}
-	}
-
-	if len(certDER) == 0 {
-		t.Fatal("Failed to get test certificate")
-	}
-
-	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func TestEncodeWithBothFriendlyNames(t *testing.T) {
+	privateKey, cert := getTestCertAndKey(t)
 	keyFriendlyName := "my-test-key"
 	certFriendlyName := "my-test-cert"
 	password := "test-password"
 
-	// Test encoding with friendly names using Modern encoder
+	// Encode with both friendly names
 	pfxData, err := Modern.EncodeWithFriendlyName(privateKey, cert, nil, password, keyFriendlyName, certFriendlyName)
 	if err != nil {
-		t.Fatalf("Failed to encode with friendly name: %v", err)
+		t.Fatalf("Failed to encode: %v", err)
 	}
 
 	// Verify we can decode it back
@@ -231,7 +206,7 @@ func TestEncodeWithFriendlyName(t *testing.T) {
 		t.Fatal("Decoded private key does not match original")
 	}
 
-	// Verify the friendly names are actually in the PKCS#12 file by examining the safe bags
+	// Verify the friendly names are in the PKCS#12 file
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		t.Fatal(err)
@@ -241,175 +216,237 @@ func TestEncodeWithFriendlyName(t *testing.T) {
 		t.Fatalf("Failed to get safe contents: %v", err)
 	}
 
-	// Find the key bag and certificate bag to check for friendly name attributes
-	foundKeyFriendlyName := false
-	foundCertFriendlyName := false
-
-	for _, bag := range bags {
-		// Check key bag for friendly name
-		if bag.Id.Equal(oidPKCS8ShroundedKeyBag) || bag.Id.Equal(oidKeyBag) {
-			for _, attr := range bag.Attributes {
-				if attr.Id.Equal(oidFriendlyName) {
-					foundKeyFriendlyName = true
-					// Decode the friendly name to verify it matches
-					var rawValue asn1.RawValue
-					if err := unmarshal(attr.Value.Bytes, &rawValue); err != nil {
-						t.Fatalf("Failed to unmarshal key friendly name: %v", err)
-					}
-					decodedName, err := decodeBMPString(rawValue.Bytes)
-					if err != nil {
-						t.Fatalf("Failed to decode key BMP string: %v", err)
-					}
-					if decodedName != keyFriendlyName {
-						t.Errorf("Expected key friendly name %q, got %q", keyFriendlyName, decodedName)
-					}
-					break
-				}
-			}
-		}
-
-		// Check certificate bag for friendly name
-		if bag.Id.Equal(oidCertBag) {
-			for _, attr := range bag.Attributes {
-				if attr.Id.Equal(oidFriendlyName) {
-					foundCertFriendlyName = true
-					// Decode the friendly name to verify it matches
-					var rawValue asn1.RawValue
-					if err := unmarshal(attr.Value.Bytes, &rawValue); err != nil {
-						t.Fatalf("Failed to unmarshal cert friendly name: %v", err)
-					}
-					decodedName, err := decodeBMPString(rawValue.Bytes)
-					if err != nil {
-						t.Fatalf("Failed to decode cert BMP string: %v", err)
-					}
-					if decodedName != certFriendlyName {
-						t.Errorf("Expected cert friendly name %q, got %q", certFriendlyName, decodedName)
-					}
-					break
-				}
-			}
-		}
-	}
-
-	if !foundKeyFriendlyName {
-		t.Error("Friendly name attribute not found in key bag")
-	}
-
-	if !foundCertFriendlyName {
-		t.Error("Friendly name attribute not found in certificate bag")
-	}
-
-	// Test encoding without friendly names (should still work)
-	pfxData2, err := Modern.EncodeWithFriendlyName(privateKey, cert, nil, password, "", "")
+	// Verify key friendly name
+	actualKeyName, err := getKeyFriendlyName(bags)
 	if err != nil {
-		t.Fatalf("Failed to encode without friendly names: %v", err)
+		t.Fatalf("Failed to get key friendly name: %v", err)
+	}
+	if actualKeyName != keyFriendlyName {
+		t.Errorf("Expected key friendly name %q, got %q", keyFriendlyName, actualKeyName)
 	}
 
-	_, _, err = Decode(pfxData2, password)
+	// Verify cert friendly name
+	actualCertName, err := getCertFriendlyName(bags)
 	if err != nil {
-		t.Fatalf("Failed to decode pfx without friendly names: %v", err)
+		t.Fatalf("Failed to get cert friendly name: %v", err)
+	}
+	if actualCertName != certFriendlyName {
+		t.Errorf("Expected cert friendly name %q, got %q", certFriendlyName, actualCertName)
+	}
+}
+
+func TestEncodeWithoutFriendlyNames(t *testing.T) {
+	privateKey, cert := getTestCertAndKey(t)
+	password := "test-password"
+
+	// Encode without friendly names
+	pfxData, err := Modern.EncodeWithFriendlyName(privateKey, cert, nil, password, "", "")
+	if err != nil {
+		t.Fatalf("Failed to encode: %v", err)
 	}
 
-	// Verify no friendly name attributes when empty strings are provided
-	bags2, _, err := getSafeContents(pfxData2, encodedPassword, 2, 2)
+	// Verify we can decode it back
+	_, _, err = Decode(pfxData, password)
+	if err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	// Verify no friendly name attributes are present
+	encodedPassword, err := bmpStringZeroTerminated(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bags, _, err := getSafeContents(pfxData, encodedPassword, 2, 2)
 	if err != nil {
 		t.Fatalf("Failed to get safe contents: %v", err)
 	}
 
-	for _, bag := range bags2 {
-		if bag.Id.Equal(oidPKCS8ShroundedKeyBag) || bag.Id.Equal(oidKeyBag) || bag.Id.Equal(oidCertBag) {
-			for _, attr := range bag.Attributes {
-				if attr.Id.Equal(oidFriendlyName) {
-					t.Error("Found friendly name attribute when none should be present")
-				}
-			}
-		}
+	if hasKeyFriendlyName(bags) {
+		t.Error("Found key friendly name when none should be present")
 	}
 
-	// Test encoding with only key friendly name
-	pfxData3, err := Modern.EncodeWithFriendlyName(privateKey, cert, nil, password, keyFriendlyName, "")
+	if hasCertFriendlyName(bags) {
+		t.Error("Found cert friendly name when none should be present")
+	}
+}
+
+func TestEncodeWithOnlyKeyFriendlyName(t *testing.T) {
+	privateKey, cert := getTestCertAndKey(t)
+	keyFriendlyName := "my-test-key"
+	password := "test-password"
+
+	// Encode with only key friendly name
+	pfxData, err := Modern.EncodeWithFriendlyName(privateKey, cert, nil, password, keyFriendlyName, "")
 	if err != nil {
-		t.Fatalf("Failed to encode with only key friendly name: %v", err)
+		t.Fatalf("Failed to encode: %v", err)
 	}
 
-	bags3, _, err := getSafeContents(pfxData3, encodedPassword, 2, 2)
+	// Verify the key has a friendly name but the cert doesn't
+	encodedPassword, err := bmpStringZeroTerminated(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bags, _, err := getSafeContents(pfxData, encodedPassword, 2, 2)
 	if err != nil {
 		t.Fatalf("Failed to get safe contents: %v", err)
 	}
 
-	foundKey := false
-	foundCert := false
-	for _, bag := range bags3 {
-		if bag.Id.Equal(oidPKCS8ShroundedKeyBag) || bag.Id.Equal(oidKeyBag) {
-			for _, attr := range bag.Attributes {
-				if attr.Id.Equal(oidFriendlyName) {
-					foundKey = true
-				}
-			}
-		}
-		if bag.Id.Equal(oidCertBag) {
-			for _, attr := range bag.Attributes {
-				if attr.Id.Equal(oidFriendlyName) {
-					foundCert = true
-				}
-			}
-		}
-	}
-
-	if !foundKey {
+	if !hasKeyFriendlyName(bags) {
 		t.Error("Key friendly name not found when it should be present")
 	}
-	if foundCert {
+
+	if hasCertFriendlyName(bags) {
 		t.Error("Certificate friendly name found when it should not be present")
 	}
+}
 
-	// Test encoding with only certificate friendly name
-	pfxData4, err := Modern.EncodeWithFriendlyName(privateKey, cert, nil, password, "", certFriendlyName)
+func TestEncodeWithOnlyCertFriendlyName(t *testing.T) {
+	privateKey, cert := getTestCertAndKey(t)
+	certFriendlyName := "my-test-cert"
+	password := "test-password"
+
+	// Encode with only certificate friendly name
+	pfxData, err := Modern.EncodeWithFriendlyName(privateKey, cert, nil, password, "", certFriendlyName)
 	if err != nil {
-		t.Fatalf("Failed to encode with only cert friendly name: %v", err)
+		t.Fatalf("Failed to encode: %v", err)
 	}
 
-	bags4, _, err := getSafeContents(pfxData4, encodedPassword, 2, 2)
+	// Verify the cert has a friendly name but the key doesn't
+	encodedPassword, err := bmpStringZeroTerminated(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bags, _, err := getSafeContents(pfxData, encodedPassword, 2, 2)
 	if err != nil {
 		t.Fatalf("Failed to get safe contents: %v", err)
 	}
 
-	foundKey = false
-	foundCert = false
-	for _, bag := range bags4 {
-		if bag.Id.Equal(oidPKCS8ShroundedKeyBag) || bag.Id.Equal(oidKeyBag) {
-			for _, attr := range bag.Attributes {
-				if attr.Id.Equal(oidFriendlyName) {
-					foundKey = true
-				}
-			}
-		}
-		if bag.Id.Equal(oidCertBag) {
-			for _, attr := range bag.Attributes {
-				if attr.Id.Equal(oidFriendlyName) {
-					foundCert = true
-				}
-			}
-		}
-	}
-
-	if foundKey {
+	if hasKeyFriendlyName(bags) {
 		t.Error("Key friendly name found when it should not be present")
 	}
-	if !foundCert {
+
+	if !hasCertFriendlyName(bags) {
 		t.Error("Certificate friendly name not found when it should be present")
 	}
+}
 
-	// Test that the old Encode method still works (calls EncodeWithFriendlyName with empty names)
-	pfxData5, err := Modern.Encode(privateKey, cert, nil, password)
+func TestEncodeBackwardCompatibility(t *testing.T) {
+	privateKey, cert := getTestCertAndKey(t)
+	password := "test-password"
+
+	// Test that the old Encode method still works
+	pfxData, err := Modern.Encode(privateKey, cert, nil, password)
 	if err != nil {
 		t.Fatalf("Failed to encode with old method: %v", err)
 	}
 
-	_, _, err = Decode(pfxData5, password)
+	// Verify we can decode it back
+	_, _, err = Decode(pfxData, password)
 	if err != nil {
-		t.Fatalf("Failed to decode pfx from old encode method: %v", err)
+		t.Fatalf("Failed to decode: %v", err)
 	}
+}
+
+// Helper function to get test certificate and key
+func getTestCertAndKey(t *testing.T) (*rsa.PrivateKey, *x509.Certificate) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Get a certificate from testdata
+	var certDER []byte
+	for _, base64P12 := range testdata {
+		p12, _ := base64.StdEncoding.DecodeString(base64P12)
+		_, cert, err := Decode(p12, "")
+		if err == nil {
+			certDER = cert.Raw
+			break
+		}
+	}
+
+	if len(certDER) == 0 {
+		t.Fatal("Failed to get test certificate")
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return privateKey, cert
+}
+
+// Helper function to find and decode a friendly name from a specific bag type
+func findFriendlyName(bags []safeBag, bagOID asn1.ObjectIdentifier) (string, bool, error) {
+	for _, bag := range bags {
+		if bag.Id.Equal(bagOID) {
+			for _, attr := range bag.Attributes {
+				if attr.Id.Equal(oidFriendlyName) {
+					var rawValue asn1.RawValue
+					if err := unmarshal(attr.Value.Bytes, &rawValue); err != nil {
+						return "", false, err
+					}
+					decodedName, err := decodeBMPString(rawValue.Bytes)
+					if err != nil {
+						return "", false, err
+					}
+					return decodedName, true, nil
+				}
+			}
+		}
+	}
+	return "", false, nil
+}
+
+// Helper function to check if a key bag has a friendly name
+func hasKeyFriendlyName(bags []safeBag) bool {
+	for _, bag := range bags {
+		if bag.Id.Equal(oidPKCS8ShroundedKeyBag) || bag.Id.Equal(oidKeyBag) {
+			for _, attr := range bag.Attributes {
+				if attr.Id.Equal(oidFriendlyName) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// Helper function to check if a cert bag has a friendly name
+func hasCertFriendlyName(bags []safeBag) bool {
+	for _, bag := range bags {
+		if bag.Id.Equal(oidCertBag) {
+			for _, attr := range bag.Attributes {
+				if attr.Id.Equal(oidFriendlyName) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// Helper function to get and verify a key's friendly name
+func getKeyFriendlyName(bags []safeBag) (string, error) {
+	for _, bag := range bags {
+		if bag.Id.Equal(oidPKCS8ShroundedKeyBag) || bag.Id.Equal(oidKeyBag) {
+			name, found, err := findFriendlyName([]safeBag{bag}, bag.Id)
+			if err != nil {
+				return "", err
+			}
+			if found {
+				return name, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+// Helper function to get and verify a cert's friendly name
+func getCertFriendlyName(bags []safeBag) (string, error) {
+	name, _, err := findFriendlyName(bags, oidCertBag)
+	return name, err
 }
 
 var testdata = map[string]string{
