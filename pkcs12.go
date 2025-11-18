@@ -625,6 +625,31 @@ func Encode(rand io.Reader, privateKey interface{}, certificate *x509.Certificat
 // the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
 // fingerprint of the end-entity certificate.
 func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err error) {
+	return enc.EncodeWithFriendlyName(privateKey, certificate, caCerts, password, "", "")
+}
+
+// EncodeWithFriendlyName produces pfxData containing one private key (privateKey), an
+// end-entity certificate (certificate), and any number of CA certificates
+// (caCerts).
+//
+// The pfxData is encrypted and authenticated with keys derived from
+// the provided password.
+//
+// If keyFriendlyName is non-empty, it will be set as the friendly name (alias) for
+// the private key. If keyFriendlyName is empty, no friendly name attribute will be added
+// to the private key.
+//
+// If certFriendlyName is non-empty, it will be set as the friendly name (alias) for
+// the end-entity certificate. If certFriendlyName is empty, no friendly name attribute
+// will be added to the certificate.
+//
+// EncodeWithFriendlyName emulates the behavior of OpenSSL's PKCS12_create: it creates two
+// SafeContents: one that's encrypted with the certificate encryption algorithm
+// and contains the certificates, and another that is unencrypted and contains the
+// private key shrouded with the key encryption algorithm.  The private key bag and
+// the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
+// fingerprint of the end-entity certificate.
+func (enc *Encoder) EncodeWithFriendlyName(privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string, keyFriendlyName string, certFriendlyName string) (pfxData []byte, err error) {
 	if enc.macAlgorithm == nil && enc.certAlgorithm == nil && enc.keyAlgorithm == nil && password != "" {
 		return nil, errors.New("pkcs12: password must be empty")
 	}
@@ -647,8 +672,40 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 		return nil, err
 	}
 
+	// Build certificate attributes
+	certAttributes := []pkcs12Attribute{localKeyIdAttr}
+
+	// Add friendly name attribute to certificate if provided
+	if certFriendlyName != "" {
+		bmpFriendlyName, err := bmpString(certFriendlyName)
+		if err != nil {
+			return nil, err
+		}
+
+		encodedFriendlyName, err := asn1.Marshal(asn1.RawValue{
+			Class:      0,
+			Tag:        30,
+			IsCompound: false,
+			Bytes:      bmpFriendlyName,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		certFriendlyNameAttr := pkcs12Attribute{
+			Id: oidFriendlyName,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17,
+				IsCompound: true,
+				Bytes:      encodedFriendlyName,
+			},
+		}
+		certAttributes = append(certAttributes, certFriendlyNameAttr)
+	}
+
 	var certBags []safeBag
-	if certBag, err := makeCertBag(certificate.Raw, []pkcs12Attribute{localKeyIdAttr}); err != nil {
+	if certBag, err := makeCertBag(certificate.Raw, certAttributes); err != nil {
 		return nil, err
 	} else {
 		certBags = append(certBags, *certBag)
@@ -681,6 +738,35 @@ func (enc *Encoder) Encode(privateKey interface{}, certificate *x509.Certificate
 		}
 	}
 	keyBag.Attributes = append(keyBag.Attributes, localKeyIdAttr)
+
+	// Add friendly name attribute to key if provided
+	if keyFriendlyName != "" {
+		bmpFriendlyName, err := bmpString(keyFriendlyName)
+		if err != nil {
+			return nil, err
+		}
+
+		encodedFriendlyName, err := asn1.Marshal(asn1.RawValue{
+			Class:      0,
+			Tag:        30,
+			IsCompound: false,
+			Bytes:      bmpFriendlyName,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		friendlyNameAttr := pkcs12Attribute{
+			Id: oidFriendlyName,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17,
+				IsCompound: true,
+				Bytes:      encodedFriendlyName,
+			},
+		}
+		keyBag.Attributes = append(keyBag.Attributes, friendlyNameAttr)
+	}
 
 	// Construct an authenticated safe with two SafeContents.
 	// The first SafeContents is encrypted and contains the cert bags.
