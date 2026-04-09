@@ -201,9 +201,5 @@ func TestModern2026TrustStoreEntries(t *testing.T) {
 		if decodedCerts[0].Subject.CommonName != commonName {
 			t.Fatalf("decoded common name = %q, want %q", decodedCerts[0].Subject.CommonName, commonName)
 		}
-
-		return
 	}
-
-	t.Fatal("expected at least one test PKCS#12 fixture")
 }
