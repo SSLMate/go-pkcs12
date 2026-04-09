@@ -168,3 +168,42 @@ func TestDecodePKCS12DataMissingKeyLength(t *testing.T) {
 
 	t.Logf("Successfully detected missing key length: %v", err)
 }
+
+func TestModern2026TrustStoreEntries(t *testing.T) {
+	for commonName, base64P12 := range testdata {
+		p12, err := base64.StdEncoding.DecodeString(base64P12)
+		if err != nil {
+			t.Fatalf("failed to decode test PKCS#12 data: %v", err)
+		}
+
+		_, cert, err := Decode(p12, "")
+		if err != nil {
+			t.Fatalf("failed to decode test certificate: %v", err)
+		}
+
+		pfxData, err := Modern2026.EncodeTrustStoreEntries([]TrustStoreEntry{{
+			Cert:         cert,
+			FriendlyName: "trust-anchor",
+		}}, "password")
+		if err != nil {
+			t.Fatalf("failed to encode Modern2026 trust store: %v", err)
+		}
+
+		decodedCerts, err := DecodeTrustStore(pfxData, "password")
+		if err != nil {
+			t.Fatalf("failed to decode Modern2026 trust store: %v", err)
+		}
+
+		if len(decodedCerts) != 1 {
+			t.Fatalf("got %d decoded certs, want 1", len(decodedCerts))
+		}
+
+		if decodedCerts[0].Subject.CommonName != commonName {
+			t.Fatalf("decoded common name = %q, want %q", decodedCerts[0].Subject.CommonName, commonName)
+		}
+
+		return
+	}
+
+	t.Fatal("expected at least one test PKCS#12 fixture")
+}
