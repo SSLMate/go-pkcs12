@@ -5,13 +5,17 @@
 package pkcs12
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"math/big"
 	"testing"
+	"time"
 )
 
 func TestPfx(t *testing.T) {
@@ -166,6 +170,61 @@ func TestPBES2_AES192CBC(t *testing.T) {
 	}
 	if len(caCerts) != 0 {
 		t.Errorf("unexpected # of caCerts: got %d, want 0", len(caCerts))
+	}
+}
+
+func TestToPEM_Ed25519(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "ed25519-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, pub, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p12, err := Encode(rand.Reader, priv, cert, nil, "password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blocks, err := ToPEM(p12, "password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var keyBlock *pem.Block
+	for _, b := range blocks {
+		if b.Type == "PRIVATE KEY" {
+			keyBlock = b
+			break
+		}
+	}
+	if keyBlock == nil {
+		t.Fatal("no PRIVATE KEY block found in PEM output")
+	}
+
+	parsed, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
+	if err != nil {
+		t.Fatalf("failed to parse PKCS8 private key: %v", err)
+	}
+	ed25519Key, ok := parsed.(ed25519.PrivateKey)
+	if !ok {
+		t.Fatalf("expected ed25519.PrivateKey, got %T", parsed)
+	}
+	if !priv.Equal(ed25519Key) {
+		t.Error("round-tripped ed25519 private key does not match original")
 	}
 }
 

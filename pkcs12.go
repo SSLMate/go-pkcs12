@@ -19,6 +19,7 @@ package pkcs12 // import "software.sslmate.com/src/go-pkcs12"
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -372,6 +373,11 @@ func convertBag(bag *safeBag, password []byte) (*pem.Block, error) {
 			block.Bytes = x509.MarshalPKCS1PrivateKey(key)
 		case *ecdsa.PrivateKey:
 			block.Bytes, err = x509.MarshalECPrivateKey(key)
+			if err != nil {
+				return nil, err
+			}
+		case ed25519.PrivateKey:
+			block.Bytes, err = x509.MarshalPKCS8PrivateKey(key)
 			if err != nil {
 				return nil, err
 			}
