@@ -124,6 +124,10 @@ func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]b
 	if kdfParams.KeyLength <= 0 {
 		return nil, errors.New("pkcs12: PBMAC1 requires explicit KeyLength parameter in PBKDF2 parameters")
 	}
+	// RFC 9579 RECOMMENDS rejecting key lengths less than 20; this is necessary to prevent possible authentication bypass (e.g. OpenSSL's CVE-2026-34181)
+	if kdfParams.KeyLength < 20 {
+		return nil, errors.New("pkcs12: PBMAC1 key length is too short")
+	}
 	keyLen := kdfParams.KeyLength
 
 	// Derive key using PBKDF2
