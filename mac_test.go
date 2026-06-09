@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"fmt"
 	"testing"
 )
 
@@ -187,8 +188,8 @@ func TestPBMAC1RejectsShortKeyLength(t *testing.T) {
 
 	// RFC 9579 recommends rejecting key lengths shorter than 20 octets to
 	// prevent MAC-forgery/authentication-bypass attacks (e.g. CVE-2026-34181).
-	const wantErr = "pkcs12: PBMAC1 key length is too short"
 	for _, keyLength := range []int{1, 8, 16, 19} {
+		wantErr := fmt.Sprintf("pkcs12: PBMAC1 key length %d is too short to be secure (minimum 20 octets)", keyLength)
 		if _, err := doMac(makeMacData(keyLength), message, password); err == nil || err.Error() != wantErr {
 			t.Errorf("KeyLength %d: got error %v, want %q", keyLength, err, wantErr)
 		}
@@ -223,8 +224,8 @@ func TestPBMAC1ShortKeyAuthenticationBypass(t *testing.T) {
 	}
 	// Guard against the file silently becoming undecodable for some unrelated reason,
 	// which would make the assertion above vacuous: the only acceptable failure is the
-	// short-key rejection.
-	if err.Error() != "pkcs12: PBMAC1 key length is too short" {
+	// short-key rejection. (The testdata file uses a 1-octet key.)
+	if want := "pkcs12: PBMAC1 key length 1 is too short to be secure (minimum 20 octets)"; err.Error() != want {
 		t.Fatalf("expected the short-key check to reject the file, got a different error: %v", err)
 	}
 }

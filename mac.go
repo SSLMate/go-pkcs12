@@ -126,7 +126,7 @@ func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]b
 	}
 	// RFC 9579 RECOMMENDS rejecting key lengths less than 20; this is necessary to prevent possible authentication bypass (e.g. OpenSSL's CVE-2026-34181)
 	if kdfParams.KeyLength < 20 {
-		return nil, errors.New("pkcs12: PBMAC1 key length is too short")
+		return nil, fmt.Errorf("pkcs12: PBMAC1 key length %d is too short to be secure (minimum 20 octets)", kdfParams.KeyLength)
 	}
 	keyLen := kdfParams.KeyLength
 
