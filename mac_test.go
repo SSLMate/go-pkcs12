@@ -146,3 +146,85 @@ func TestPBMAC1(t *testing.T) {
 		t.Errorf("Expected ErrIncorrectPassword, got: %v", err)
 	}
 }
+
+func TestPBMAC1RejectsShortKeyLength(t *testing.T) {
+	message := []byte{11, 12, 13, 14, 15}
+	password, err := bmpStringZeroTerminated("test-password")
+	if err != nil {
+		t.Fatalf("Failed to encode password to BMP string: %v", err)
+	}
+
+	// makeMacData builds a PBMAC1 macData whose PBKDF2 parameters request the
+	// given derived key length.
+	makeMacData := func(keyLength int) *macData {
+		kdfParams := pbkdf2Params{
+			Salt:       asn1.RawValue{Tag: asn1.TagOctetString, Bytes: []byte{1, 2, 3, 4, 5, 6, 7, 8}},
+			Iterations: 1000,
+			KeyLength:  keyLength,
+			Prf:        pkix.AlgorithmIdentifier{Algorithm: oidHmacWithSHA256},
+		}
+		kdfParamsBytes, err := asn1.Marshal(kdfParams)
+		if err != nil {
+			t.Fatalf("Failed to marshal KDF params: %v", err)
+		}
+		params := pbmac1Params{
+			Kdf:    pkix.AlgorithmIdentifier{Algorithm: oidPBKDF2, Parameters: asn1.RawValue{FullBytes: kdfParamsBytes}},
+			MacAlg: pkix.AlgorithmIdentifier{Algorithm: oidHmacWithSHA256},
+		}
+		paramsBytes, err := asn1.Marshal(params)
+		if err != nil {
+			t.Fatalf("Failed to marshal PBMAC1 params: %v", err)
+		}
+		return &macData{
+			Mac: digestInfo{
+				Algorithm: pkix.AlgorithmIdentifier{
+					Algorithm:  oidPBMAC1,
+					Parameters: asn1.RawValue{FullBytes: paramsBytes},
+				},
+			},
+		}
+	}
+
+	// RFC 9579 recommends rejecting key lengths shorter than 20 octets to
+	// prevent MAC-forgery/authentication-bypass attacks (e.g. CVE-2026-34181).
+	const wantErr = "pkcs12: PBMAC1 key length is too short"
+	for _, keyLength := range []int{1, 8, 16, 19} {
+		if _, err := doMac(makeMacData(keyLength), message, password); err == nil || err.Error() != wantErr {
+			t.Errorf("KeyLength %d: got error %v, want %q", keyLength, err, wantErr)
+		}
+	}
+
+	// A key length of exactly 20 octets is the minimum allowed and must succeed.
+	if _, err := doMac(makeMacData(20), message, password); err != nil {
+		t.Errorf("KeyLength 20: unexpected error: %v", err)
+	}
+}
+
+// TestPBMAC1ShortKeyAuthenticationBypass demonstrates the attack that the
+// short-key check prevents: a forged trust store whose 1-octet PBMAC1 key is
+// derived from one password can be "opened" with a different password whenever
+// the two passwords' PBKDF2 outputs collide in that single octet (~1/256).
+func TestPBMAC1ShortKeyAuthenticationBypass(t *testing.T) {
+	// pbmac1-short-key-bypass.txt is a complete PKCS#12 trust store whose PBMAC1 MAC
+	// uses a 1-octet PBKDF2 key. Its salt was chosen by brute force -- feasible only
+	// because a 1-octet key has just 256 values -- so that the key derived from the
+	// password used to compute the MAC ("fakepassword") collides with the key derived
+	// from a different password ("realpassword"). The file therefore authenticates
+	// under "realpassword" even though that password was never used to create it.
+	//
+	// A correct short-key check rejects the file outright; without it,
+	// DecodeTrustStore authenticates the file under the wrong password, which is an
+	// authentication bypass (cf. OpenSSL CVE-2026-34181).
+	pfxData := loadTestData(t, "pbmac1-short-key-bypass.txt")
+
+	_, err := DecodeTrustStore(pfxData, "realpassword")
+	if err == nil {
+		t.Fatal("authentication bypass: a 1-octet-key PBMAC1 trust store decoded under the wrong password")
+	}
+	// Guard against the file silently becoming undecodable for some unrelated reason,
+	// which would make the assertion above vacuous: the only acceptable failure is the
+	// short-key rejection.
+	if err.Error() != "pkcs12: PBMAC1 key length is too short" {
+		t.Fatalf("expected the short-key check to reject the file, got a different error: %v", err)
+	}
+}
