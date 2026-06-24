@@ -201,6 +201,59 @@ func TestPBMAC1RejectsShortKeyLength(t *testing.T) {
 	}
 }
 
+func TestPBMAC1RejectsLongKeyLength(t *testing.T) {
+	message := []byte{11, 12, 13, 14, 15}
+	password, err := bmpStringZeroTerminated("test-password")
+	if err != nil {
+		t.Fatalf("Failed to encode password to BMP string: %v", err)
+	}
+
+	// makeMacData builds a PBMAC1 macData whose PBKDF2 parameters request the
+	// given derived key length.
+	makeMacData := func(keyLength int) *macData {
+		kdfParams := pbkdf2Params{
+			Salt:       asn1.RawValue{Tag: asn1.TagOctetString, Bytes: []byte{1, 2, 3, 4, 5, 6, 7, 8}},
+			Iterations: 1000,
+			KeyLength:  keyLength,
+			Prf:        pkix.AlgorithmIdentifier{Algorithm: oidHmacWithSHA256},
+		}
+		kdfParamsBytes, err := asn1.Marshal(kdfParams)
+		if err != nil {
+			t.Fatalf("Failed to marshal KDF params: %v", err)
+		}
+		params := pbmac1Params{
+			Kdf:    pkix.AlgorithmIdentifier{Algorithm: oidPBKDF2, Parameters: asn1.RawValue{FullBytes: kdfParamsBytes}},
+			MacAlg: pkix.AlgorithmIdentifier{Algorithm: oidHmacWithSHA256},
+		}
+		paramsBytes, err := asn1.Marshal(params)
+		if err != nil {
+			t.Fatalf("Failed to marshal PBMAC1 params: %v", err)
+		}
+		return &macData{
+			Mac: digestInfo{
+				Algorithm: pkix.AlgorithmIdentifier{
+					Algorithm:  oidPBMAC1,
+					Parameters: asn1.RawValue{FullBytes: paramsBytes},
+				},
+			},
+		}
+	}
+
+	// A KeyLength larger than the maximum HMAC output size (64 octets, SHA-512) is rejected so it can't
+	// cause a huge PBKDF2 allocation (same as OpenSSL's EVP_MAX_MD_SIZE cap)
+	for _, keyLength := range []int{65, 128, 1 << 20, 1 << 30} {
+		wantErr := fmt.Sprintf("pkcs12: PBMAC1 key length %d is too large (maximum 64 octets)", keyLength)
+		if _, err := doMac(makeMacData(keyLength), message, password); err == nil || err.Error() != wantErr {
+			t.Errorf("KeyLength %d: got error %v, want %q", keyLength, err, wantErr)
+		}
+	}
+
+	// A key length of exactly 64 octets is the maximum allowed and must succeed.
+	if _, err := doMac(makeMacData(64), message, password); err != nil {
+		t.Errorf("KeyLength 64: unexpected error: %v", err)
+	}
+}
+
 // TestPBMAC1ShortKeyAuthenticationBypass demonstrates the attack that the
 // short-key check prevents: a forged trust store whose 1-octet PBMAC1 key is
 // derived from one password can be "opened" with a different password whenever
