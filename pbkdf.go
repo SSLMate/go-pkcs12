@@ -28,6 +28,12 @@ func sha256Sum(in []byte) []byte {
 	return sum[:]
 }
 
+// sha384Sum returns the SHA-384 hash of in.
+func sha384Sum(in []byte) []byte {
+	sum := sha512.Sum384(in)
+	return sum[:]
+}
+
 // sha512Sum returns the SHA-512 hash of in.
 func sha512Sum(in []byte) []byte {
 	sum := sha512.Sum512(in)
