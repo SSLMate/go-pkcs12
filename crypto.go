@@ -315,6 +315,13 @@ func makePBES2Parameters(rand io.Reader, salt []byte, iterations int) ([]byte, e
 	}
 	kdfparams.Iterations = iterations
 	kdfparams.Prf.Algorithm = oidHmacWithSHA256
+	// RFC 8018 Appendix B.1.1 defines the PBKDF2 PRF AlgorithmIdentifier as
+	// {NULL IDENTIFIED BY id-hmacWithSHA256}: the parameters field is a NULL,
+	// not absent. BoringSSL (Android, Chrome, Dart's dart:io) enforces this and
+	// rejects the whole PKCS#12 file with DECODE_ERROR when it is omitted.
+	// OpenSSL and BouncyCastle tolerate the omission, which is why it went
+	// unnoticed.
+	kdfparams.Prf.Parameters = asn1.NullRawValue
 
 	var params pbes2Params
 	params.Kdf.Algorithm = oidPBKDF2

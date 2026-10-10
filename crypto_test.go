@@ -280,3 +280,28 @@ func (params pbeParams) RawASN1() (raw asn1.RawValue) {
 	}
 	return
 }
+
+// The PBKDF2 PRF AlgorithmIdentifier must carry an explicit NULL parameter
+// (RFC 8018 B.1.1). BoringSSL rejects PKCS#12 files that omit it.
+func TestMakePBES2ParametersPrfHasNullParameter(t *testing.T) {
+	raw, err := makePBES2Parameters(bytes.NewReader(make([]byte, 64)), []byte{1, 2, 3, 4, 5, 6, 7, 8}, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var params pbes2Params
+	if err := unmarshal(raw, &params); err != nil {
+		t.Fatal(err)
+	}
+	var kdfParams pbkdf2Params
+	if err := unmarshal(params.Kdf.Parameters.FullBytes, &kdfParams); err != nil {
+		t.Fatal(err)
+	}
+
+	if !kdfParams.Prf.Algorithm.Equal(oidHmacWithSHA256) {
+		t.Fatalf("prf algorithm = %v, want %v", kdfParams.Prf.Algorithm, oidHmacWithSHA256)
+	}
+	if !bytes.Equal(kdfParams.Prf.Parameters.FullBytes, asn1.NullBytes) {
+		t.Errorf("prf parameters = %x, want ASN.1 NULL (%x)", kdfParams.Prf.Parameters.FullBytes, asn1.NullBytes)
+	}
+}
