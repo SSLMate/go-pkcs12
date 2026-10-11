@@ -7,8 +7,10 @@ package pkcs12
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"fmt"
 	"testing"
 )
 
@@ -303,5 +305,64 @@ func TestMakePBES2ParametersPrfHasNullParameter(t *testing.T) {
 	}
 	if !bytes.Equal(kdfParams.Prf.Parameters.FullBytes, asn1.NullBytes) {
 		t.Errorf("prf parameters = %x, want ASN.1 NULL (%x)", kdfParams.Prf.Parameters.FullBytes, asn1.NullBytes)
+	}
+}
+
+func TestRejectLargeIterations(t *testing.T) {
+	password, err := bmpStringZeroTerminated("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	salt := []byte("salt-salt")
+	tests := []struct {
+		name string
+		run  func(iterations int) error
+	}{
+		{"pbe", func(iterations int) error {
+			td := testDecryptable{data: make([]byte, 8), algorithm: pkix.AlgorithmIdentifier{
+				Algorithm:  oidPBEWithSHAAnd3KeyTripleDESCBC,
+				Parameters: pbeParams{Salt: salt, Iterations: iterations}.RawASN1(),
+			}}
+			_, err := pbDecrypt(&td, password)
+			return err
+		}},
+		{"pbes2", func(iterations int) error {
+			params, err := makePBES2Parameters(rand.Reader, salt, iterations)
+			if err != nil {
+				return err
+			}
+			td := testDecryptable{data: make([]byte, 16), algorithm: pkix.AlgorithmIdentifier{
+				Algorithm:  oidPBES2,
+				Parameters: asn1.RawValue{FullBytes: params},
+			}}
+			_, err = pbDecrypt(&td, password)
+			return err
+		}},
+		{"mac", func(iterations int) error {
+			return verifyMac(&macData{
+				Mac:        digestInfo{Algorithm: pkix.AlgorithmIdentifier{Algorithm: oidSHA256}},
+				MacSalt:    salt,
+				Iterations: iterations,
+			}, nil, password)
+		}},
+		{"pbmac1", func(iterations int) error {
+			params, err := makePBMAC1Parameters(salt, iterations)
+			if err != nil {
+				return err
+			}
+			return verifyMac(&macData{Mac: digestInfo{Algorithm: pkix.AlgorithmIdentifier{
+				Algorithm:  oidPBMAC1,
+				Parameters: asn1.RawValue{FullBytes: params},
+			}}}, nil, password)
+		}},
+	}
+	wantErr := fmt.Sprintf("pkcs12: KDF iteration count %d is too large (maximum %d)", maxDecodeIterations+1, maxDecodeIterations)
+	for _, test := range tests {
+		if err := test.run(maxDecodeIterations + 1); err == nil || err.Error() != wantErr {
+			t.Errorf("%s: got error %v, want %q", test.name, err, wantErr)
+		}
+	}
+	if err := checkIterations(maxDecodeIterations, maxDecodeIterations); err != nil {
+		t.Errorf("iterations=%d: unexpected error %v", maxDecodeIterations, err)
 	}
 }

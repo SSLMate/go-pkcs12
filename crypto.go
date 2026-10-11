@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"math"
 
 	"golang.org/x/crypto/pbkdf2"
 	"software.sslmate.com/src/go-pkcs12/internal/rc2"
@@ -95,7 +96,22 @@ type pbeParams struct {
 	Iterations int
 }
 
-func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.Block, []byte, error) {
+// maxDecodeIterations bounds the KDF iteration counts a decoded file may
+// request. It matches the JDK's PKCS12KeyStore.MAX_ITERATION_COUNT.
+const maxDecodeIterations = 5000000
+
+// noIterationLimit is the bound the encoder passes, so that any count
+// accepted by WithIterations still encodes.
+const noIterationLimit = math.MaxInt
+
+func checkIterations(iterations, maxIterations int) error {
+	if iterations > maxIterations {
+		return fmt.Errorf("pkcs12: KDF iteration count %d is too large (maximum %d)", iterations, maxIterations)
+	}
+	return nil
+}
+
+func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte, maxIterations int) (cipher.Block, []byte, error) {
 	var cipherType pbeCipher
 
 	switch {
@@ -115,13 +131,16 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 			return nil, nil, err
 		}
 		utf8Password := []byte(originalPassword)
-		return pbes2CipherFor(algorithm, utf8Password)
+		return pbes2CipherFor(algorithm, utf8Password, maxIterations)
 	default:
 		return nil, nil, NotImplementedError("pbe algorithm " + algorithm.Algorithm.String() + " is not supported")
 	}
 
 	var params pbeParams
 	if err := unmarshal(algorithm.Parameters.FullBytes, &params); err != nil {
+		return nil, nil, err
+	}
+	if err := checkIterations(params.Iterations, maxIterations); err != nil {
 		return nil, nil, err
 	}
 
@@ -137,7 +156,7 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 }
 
 func pbDecrypterFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.BlockMode, int, error) {
-	block, iv, err := pbeCipherFor(algorithm, password)
+	block, iv, err := pbeCipherFor(algorithm, password, maxDecodeIterations)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -205,7 +224,7 @@ type pbkdf2Params struct {
 	Prf        pkix.AlgorithmIdentifier `asn1:"optional"`
 }
 
-func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.Block, []byte, error) {
+func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte, maxIterations int) (cipher.Block, []byte, error) {
 	var params pbes2Params
 	if err := unmarshal(algorithm.Parameters.FullBytes, &params); err != nil {
 		return nil, nil, err
@@ -221,6 +240,9 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 	}
 	if kdfParams.Salt.Tag != asn1.TagOctetString {
 		return nil, nil, NotImplementedError("only octet string salts are supported for pbes2/pbkdf2")
+	}
+	if err := checkIterations(kdfParams.Iterations, maxIterations); err != nil {
+		return nil, nil, err
 	}
 
 	var prf func() hash.Hash
@@ -270,7 +292,7 @@ type decryptable interface {
 }
 
 func pbEncrypterFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.BlockMode, int, error) {
-	block, iv, err := pbeCipherFor(algorithm, password)
+	block, iv, err := pbeCipherFor(algorithm, password, noIterationLimit)
 	if err != nil {
 		return nil, 0, err
 	}

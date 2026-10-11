@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"testing"
 )
 
@@ -166,6 +167,23 @@ func TestPBES2_AES192CBC(t *testing.T) {
 	}
 	if len(caCerts) != 0 {
 		t.Errorf("unexpected # of caCerts: got %d, want 0", len(caCerts))
+	}
+}
+
+// The iteration bound applies to decoding only, so an encoder may still ask for more.
+func TestEncodeAboveDecodeIterationLimit(t *testing.T) {
+	p12, _ := base64.StdEncoding.DecodeString(testdata["Windows Azure Tools"])
+	_, cert, err := Decode(p12, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pfxData, err := Modern2023.WithIterations(maxDecodeIterations+1).EncodeTrustStore([]*x509.Certificate{cert}, "password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := fmt.Sprintf("pkcs12: KDF iteration count %d is too large (maximum %d)", maxDecodeIterations+1, maxDecodeIterations)
+	if _, err := DecodeTrustStore(pfxData, "password"); err == nil || err.Error() != wantErr {
+		t.Errorf("got error %v, want %q", err, wantErr)
 	}
 }
 

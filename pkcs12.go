@@ -60,7 +60,8 @@ type Encoder struct {
 // use a high-entropy password (e.g. one generated with `openssl rand -hex 16`).
 // See https://neilmadden.blog/2023/01/09/on-pbkdf2-iterations/ for more detail.
 //
-// Panics if iterations is less than 1.
+// Panics if iterations is less than 1.  Decoding rejects iteration counts
+// above 5,000,000, so a file encoded with more cannot be read back by this package.
 func (enc Encoder) WithIterations(iterations int) *Encoder {
 	if iterations < 1 {
 		panic("pkcs12: number of iterations is less than 1")

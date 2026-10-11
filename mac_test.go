@@ -190,13 +190,13 @@ func TestPBMAC1RejectsShortKeyLength(t *testing.T) {
 	// prevent MAC-forgery/authentication-bypass attacks (e.g. CVE-2026-34181).
 	for _, keyLength := range []int{1, 8, 16, 19} {
 		wantErr := fmt.Sprintf("pkcs12: PBMAC1 key length %d is too short to be secure (minimum 20 octets)", keyLength)
-		if _, err := doMac(makeMacData(keyLength), message, password); err == nil || err.Error() != wantErr {
+		if _, err := doMac(makeMacData(keyLength), message, password, maxDecodeIterations); err == nil || err.Error() != wantErr {
 			t.Errorf("KeyLength %d: got error %v, want %q", keyLength, err, wantErr)
 		}
 	}
 
 	// A key length of exactly 20 octets is the minimum allowed and must succeed.
-	if _, err := doMac(makeMacData(20), message, password); err != nil {
+	if _, err := doMac(makeMacData(20), message, password, maxDecodeIterations); err != nil {
 		t.Errorf("KeyLength 20: unexpected error: %v", err)
 	}
 }
@@ -243,13 +243,13 @@ func TestPBMAC1RejectsLongKeyLength(t *testing.T) {
 	// cause a huge PBKDF2 allocation (same as OpenSSL's EVP_MAX_MD_SIZE cap)
 	for _, keyLength := range []int{65, 128, 1 << 20, 1 << 30} {
 		wantErr := fmt.Sprintf("pkcs12: PBMAC1 key length %d is too large (maximum 64 octets)", keyLength)
-		if _, err := doMac(makeMacData(keyLength), message, password); err == nil || err.Error() != wantErr {
+		if _, err := doMac(makeMacData(keyLength), message, password, maxDecodeIterations); err == nil || err.Error() != wantErr {
 			t.Errorf("KeyLength %d: got error %v, want %q", keyLength, err, wantErr)
 		}
 	}
 
 	// A key length of exactly 64 octets is the maximum allowed and must succeed.
-	if _, err := doMac(makeMacData(64), message, password); err != nil {
+	if _, err := doMac(makeMacData(64), message, password, maxDecodeIterations); err != nil {
 		t.Errorf("KeyLength 64: unexpected error: %v", err)
 	}
 }

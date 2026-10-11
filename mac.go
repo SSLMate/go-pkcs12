@@ -71,7 +71,7 @@ var (
 // PBMAC1 (RFC 8018) uses PBKDF2 for key derivation and supports various HMAC algorithms.
 // Unlike traditional PKCS#12 MAC algorithms, PBMAC1 gets all its parameters from
 // the Algorithm.Parameters field, ignoring macData.MacSalt and macData.Iterations.
-func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]byte, error) {
+func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte, maxIterations int) ([]byte, error) {
 	var params pbmac1Params
 	if err := unmarshal(algorithm.Parameters.FullBytes, &params); err != nil {
 		return nil, fmt.Errorf("error decoding PBMAC1 parameters: %w", err)
@@ -137,6 +137,10 @@ func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]b
 	}
 	keyLen := kdfParams.KeyLength
 
+	if err := checkIterations(kdfParams.Iterations, maxIterations); err != nil {
+		return nil, err
+	}
+
 	// Derive key using PBKDF2
 	key := pbkdf2.Key(password, kdfParams.Salt.Bytes, kdfParams.Iterations, keyLen, prf)
 
@@ -146,7 +150,7 @@ func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]b
 	return mac.Sum(nil), nil
 }
 
-func doMac(macData *macData, message, password []byte) ([]byte, error) {
+func doMac(macData *macData, message, password []byte, maxIterations int) ([]byte, error) {
 	// Handle PBMAC1 separately - it uses its own parameters structure from Algorithm.Parameters
 	// and ignores macData.MacSalt and macData.Iterations fields
 	if macData.Mac.Algorithm.Algorithm.Equal(oidPBMAC1) {
@@ -157,7 +161,11 @@ func doMac(macData *macData, message, password []byte) ([]byte, error) {
 			return nil, err
 		}
 		utf8Password := []byte(originalPassword)
-		return doPBMAC1(macData.Mac.Algorithm, message, utf8Password)
+		return doPBMAC1(macData.Mac.Algorithm, message, utf8Password, maxIterations)
+	}
+
+	if err := checkIterations(macData.Iterations, maxIterations); err != nil {
+		return nil, err
 	}
 
 	var hFn func() hash.Hash
@@ -182,7 +190,7 @@ func doMac(macData *macData, message, password []byte) ([]byte, error) {
 }
 
 func verifyMac(macData *macData, message, password []byte) error {
-	expectedMAC, err := doMac(macData, message, password)
+	expectedMAC, err := doMac(macData, message, password, maxDecodeIterations)
 	if err != nil {
 		return err
 	}
@@ -193,7 +201,7 @@ func verifyMac(macData *macData, message, password []byte) error {
 }
 
 func computeMac(macData *macData, message, password []byte) error {
-	digest, err := doMac(macData, message, password)
+	digest, err := doMac(macData, message, password, noIterationLimit)
 	if err != nil {
 		return err
 	}
