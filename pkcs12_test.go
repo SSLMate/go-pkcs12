@@ -9,8 +9,10 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"reflect"
 	"testing"
 )
 
@@ -62,7 +64,12 @@ func TestPEM(t *testing.T) {
 	}
 }
 
+type EncodeTrustStoreFunc func([]*x509.Certificate, string) ([]byte, error)
+
 func TestTrustStore(t *testing.T) {
+	certs := make([]*x509.Certificate, 0)
+	commonNames := make([]string, 0)
+
 	for commonName, base64P12 := range testdata {
 		p12, _ := base64.StdEncoding.DecodeString(base64P12)
 
@@ -71,7 +78,21 @@ func TestTrustStore(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		pfxData, err := EncodeTrustStore(rand.Reader, []*x509.Certificate{cert}, "password")
+		certs = append(certs, cert)
+		commonNames = append(commonNames, commonName)
+	}
+
+	for _, encodeTrustStore := range []EncodeTrustStoreFunc{
+		func(certificates []*x509.Certificate, password string) ([]byte, error) {
+			return EncodeTrustStore(rand.Reader, certificates, password)
+		},
+		Legacy.EncodeTrustStore,
+		LegacyDES.EncodeTrustStore,
+		LegacyRC2.EncodeTrustStore,
+		Modern2023.EncodeTrustStore,
+		Modern2026.EncodeTrustStore,
+	} {
+		pfxData, err := encodeTrustStore(certs, "password")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,12 +102,35 @@ func TestTrustStore(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(decodedCerts) != 1 {
-			t.Fatal("Unexpected number of certs")
+		if len(decodedCerts) != len(commonNames) {
+			t.Fatalf("expected %d certs, got %d", len(commonNames), len(decodedCerts))
 		}
 
-		if decodedCerts[0].Subject.CommonName != commonName {
-			t.Errorf("expected common name to be %q, but found %q", commonName, decodedCerts[0].Subject.CommonName)
+		for i := range commonNames {
+			if decodedCerts[i].Subject.CommonName != commonNames[i] {
+				t.Errorf("expected common name to be %q, but found %q", commonNames[i], decodedCerts[i].Subject.CommonName)
+			}
+		}
+	}
+
+}
+
+func TestTrustStoreOpenSSL(t *testing.T) {
+	for _, truststoreBase64 := range []string{openSslTruststore, openSslTruststoreLegacy} {
+		p12, _ := base64.StdEncoding.DecodeString(truststoreBase64)
+		certs, err := DecodeTrustStore(p12, openSslTruststorePassword)
+		if err != nil {
+			t.Fatalf("error while decoding truststore: %v", err)
+		}
+
+		if len(certs) != len(openSslTruststoreExpectedDNs) {
+			t.Fatalf("expected %d certs, got %d", len(openSslTruststoreExpectedDNs), len(certs))
+		}
+
+		for i := range certs {
+			if !reflect.DeepEqual(certs[i].Subject.ToRDNSequence(), openSslTruststoreExpectedDNs[i].ToRDNSequence()) {
+				t.Fatalf("expected DN `%s`, got `%s`", openSslTruststoreExpectedDNs[i], certs[i].Subject.String())
+			}
 		}
 	}
 }
@@ -219,3 +263,107 @@ p8SsTugkit8wOwYJKoZIhvcNAQkUMS4eLABGAHIAaQBlAG4AZABsAHkAIABuAGEAbQBlACAAZgBv
 AHIAIABjAGUAcgB0MDEwITAJBgUrDgMCGgUABBRFsNz3Zd1O1GI8GTuFwCWuDOjEEwQIuBEfIcAy
 HQ8CAggA`,
 }
+
+var openSslTruststoreExpectedDNs = []pkix.Name{
+	{CommonName: "DigiCert Global Root G2", OrganizationalUnit: []string{"www.digicert.com"}, Organization: []string{"DigiCert Inc"}, Country: []string{"US"}},
+	{CommonName: "GTS Root R1", Organization: []string{"Google Trust Services LLC"}, Country: []string{"US"}},
+}
+
+const openSslTruststorePassword = "password"
+
+// openssl pkcs12 -export -in digicert-g2.pem -certfile gts-root-r1.pem -out keystore.p12 -nokeys -jdktrust anyExtendedKeyUsage -legacy
+const openSslTruststoreLegacy = `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
+AA=`
+
+// openssl pkcs12 -export -in digicert-g2.pem -certfile gts-root-r1.pem -out keystore.p12 -nokeys -jdktrust anyExtendedKeyUsage
+const openSslTruststore = `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
+LTkjxwBBAvI+WYF8JC5hfoz2YPCQDJAgIIAA==`
