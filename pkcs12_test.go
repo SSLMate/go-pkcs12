@@ -219,3 +219,37 @@ p8SsTugkit8wOwYJKoZIhvcNAQkUMS4eLABGAHIAaQBlAG4AZABsAHkAIABuAGEAbQBlACAAZgBv
 AHIAIABjAGUAcgB0MDEwITAJBgUrDgMCGgUABBRFsNz3Zd1O1GI8GTuFwCWuDOjEEwQIuBEfIcAy
 HQ8CAggA`,
 }
+
+func TestPKCS12_SHA384MAC(t *testing.T) {
+	// Self-signed cert generated and packaged via:
+	//   openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 1 -nodes -subj "/CN=sha384-mac-test"
+	//   openssl pkcs12 -export -out test.p12 -inkey key.pem -in cert.pem \
+	//     -name "sha384-mac-test" -passout pass:testpassword -macalg sha384 \
+	//     -certpbe AES-256-CBC -keypbe AES-256-CBC
+	// Verified via `openssl pkcs12 -info`: "MAC: sha384, Iteration 2048".
+	commonName := "sha384-mac-test"
+	base64P12 := `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`
+
+	p12, err := base64.StdEncoding.DecodeString(base64P12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pk, cert, caCerts, err := DecodeChain(p12, "testpassword")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rsaPk, ok := pk.(*rsa.PrivateKey)
+	if !ok {
+		t.Error("could not cast to rsa private key")
+	}
+	if !rsaPk.PublicKey.Equal(cert.PublicKey) {
+		t.Error("public key embedded in private key not equal to public key of certificate")
+	}
+	if cert.Subject.CommonName != commonName {
+		t.Errorf("unexpected leaf cert common name, got %s, want %s", cert.Subject.CommonName, commonName)
+	}
+	if len(caCerts) != 0 {
+		t.Errorf("unexpected # of caCerts: got %d, want 0", len(caCerts))
+	}
+}
